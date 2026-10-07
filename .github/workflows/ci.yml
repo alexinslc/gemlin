@@ -17,3 +17,28 @@ jobs:
       - run: pip install -e . pytest ruff
       - run: ruff check --select E4,E7,E9,F .  # the classic default rules
       - run: python -m pytest -q
+
+  installer:  # the one-line installers from gemlin.dev, run for real (installing this commit)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          GEMLIN_SOURCE="file://$PWD" GEMLIN_NO_START=1 sh site/install.sh
+          "$HOME/.local/bin/gemlin" --version
+          "$HOME/.local/bin/gemlin" skills
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:GEMLIN_SOURCE = "file:///" + ($PWD.Path -replace '\\', '/')
+          $env:GEMLIN_NO_START = "1"
+          ./site/install.ps1
+          $gemlin = Join-Path $env:USERPROFILE ".local\bin\gemlin.exe"
+          & $gemlin --version
+          & $gemlin skills
