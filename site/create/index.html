@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gemlin Creator</title>
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@600;700&display=swap">
 <meta name="description" content="Design your own Gemlin, the little AI creature that lives on your desktop.">
 <style>
 /* Layout: a "desktop" stage where your Gemlin walks, controls beside it, and the command to take it home below. */
@@ -12,13 +15,18 @@
   --bg: #171c26; --panel: #202733; --raised: #283040; --line: #36404e;
   --ink: #f6f3ec; --muted: #adb9c8; --mint: #9befd2; --mint-ink: #0f2a24;
   --paper: #fff4de; --charcoal: #0f1b27;
+  --display: "Pixelify Sans", ui-monospace, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
 main { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: grid; gap: 28px; }
-h1 { font-size: clamp(30px, 5vw, 40px); line-height: 1.1; letter-spacing: -1px; margin: 6px 0 8px; text-wrap: balance; }
+.site-nav { display: flex; justify-content: space-between; align-items: center; }
+.site-nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
+.site-nav a:hover { color: var(--mint); }
+.site-nav .wordmark { font: 700 22px var(--display); color: var(--ink); letter-spacing: .5px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 5vw, 42px); line-height: 1.1; letter-spacing: 0; margin: 6px 0 8px; text-wrap: balance; }
 h2 { font-size: 18px; letter-spacing: -.2px; margin: 0; }
 p { margin: 0; color: var(--muted); }
 .eyebrow { color: var(--mint); text-transform: uppercase; letter-spacing: 2px; font-size: 11px; font-weight: 700; }
@@ -95,6 +103,7 @@ code.inline { font: 13px var(--mono); color: var(--ink); }
 </head>
 <body>
 <main>
+  <nav class="site-nav"><a href="/" class="wordmark">gemlin</a><a href="https://github.com/alexinslc/gemlin">GitHub</a></nav>
   <header>
     <div class="eyebrow">Gemlin / creator</div>
     <h1>Make your Gemlin.</h1>
@@ -129,13 +138,6 @@ code.inline { font: 13px var(--mono); color: var(--ink); }
         <div class="color-row"><label for="c-accent">Hat</label><input type="color" id="c-accent"><div class="swatches" data-for="c-accent"></div></div>
         <div class="color-row"><label for="c-eyes">Eyes</label><input type="color" id="c-eyes"><div class="swatches" data-for="c-eyes"></div></div>
       </div>
-      <div class="group">
-        <span class="label">Walks</span>
-        <div class="segmented" role="group" aria-label="How it walks">
-          <button type="button" data-walk="side" aria-pressed="true">Sideways</button>
-          <button type="button" data-walk="front" aria-pressed="false">Facing you</button>
-        </div>
-      </div>
       <button type="button" class="shuffle" id="shuffle">↻ Shuffle hat and colors</button>
     </div>
   </section>
@@ -165,8 +167,9 @@ code.inline { font: 13px var(--mono); color: var(--ink); }
     <p style="font-size:13px">It saves your look in <code class="inline">gemlin.json</code> and wakes your Gemlin up. Already running? Type <code class="inline">quit</code> first. Change your mind later? Come back, tweak, and copy again.</p>
   </section>
 
-  <footer>Gemlin · Hacktoberfest Hack Day Draper × AMH · Your choices stay in this browser until you copy the command.</footer>
+  <footer><a href="/" style="color:inherit">gemlin.dev</a> · Hacktoberfest Hack Day Draper × AMH · Your choices stay in this browser until you copy the command.</footer>
 </main>
+<script src="/sprites.js"></script>
 <script src="creator.js"></script>
 </body>
 </html>

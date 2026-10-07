@@ -1,0 +1,10 @@
+// gemlin.dev: the static site in site/, served by Cloudflare. Deploy with: npx wrangler deploy
+{
+  "name": "gemlin",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./site" },
+  "routes": [
+    { "pattern": "gemlin.dev", "custom_domain": true },
+    { "pattern": "www.gemlin.dev", "custom_domain": true }
+  ]
+}

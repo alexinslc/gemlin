@@ -6,3 +6,4 @@ venv/
 .env
 .trusted_skills
 gemlin.json
+.wrangler/

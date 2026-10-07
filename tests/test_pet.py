@@ -53,11 +53,11 @@ def test_png_round_trip(tmp_path):
 
 def test_clean_keeps_only_sensible_values():
     me = pet.clean({"name": "x" * 99, "parts": {"hat": "../../etc", "body": "gem"},
-                    "colors": {"body": "red", "eyes": "#ABCDEF"}, "walk": "moonwalk"})
+                    "colors": {"body": "red", "eyes": "#ABCDEF"}, "walk": "front"})
     assert me["name"] == "x" * 24
     assert me["parts"]["hat"] == pet.DEFAULTS["parts"]["hat"]
     assert me["colors"] == {**pet.DEFAULTS["colors"], "eyes": "#abcdef"}
-    assert me["walk"] == "side"
+    assert "walk" not in me  # it always walks sideways now; old look codes still load
     assert pet.clean("not a dict") == pet.clean({})
 
 

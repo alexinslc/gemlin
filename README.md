@@ -2,7 +2,7 @@
 
 A tiny AI creature that lives in your laptop, powered by **Gemma 4 via the Gemini API**. It has a name and a personality, uses tools to sense your machine (Downloads, big files, busy processes, disk space), and can **write its own new tools** when you ask for something it can't do yet. You approve every change.
 
-The default creature is **Gemlin**, a cheeky little gem-flavored creature (a play on Gemma) that loves tidy disks and teases you about your file hoarding. It also lives on your desktop: a little pixel-art pet walks along the bottom of your screen, answers in speech bubbles, and opens a chat box when you click it. **Design your own** (name, personality, hat, colors) with the creator site, or change `NAME` and `PERSONA` at the top of `gemlin.py`.
+The default creature is **Gemlin**, a cheeky little gem-flavored creature (a play on Gemma) that loves tidy disks and teases you about your file hoarding. It also lives on your desktop: a little pixel-art pet walks along the bottom of your screen, answers in speech bubbles, and opens a chat box when you click it. **Design your own** (name, personality, hat, colors) at [gemlin.dev/create](https://gemlin.dev/create/), or change `NAME` and `PERSONA` at the top of `gemlin.py`.
 
 Built for the **Gemlin** workshop at Hacktoberfest Hack Day Draper x AMH (Oct 16, 2026). Theme: *AI belongs to everyone.*
 
@@ -50,7 +50,7 @@ Key dependencies: the official [`google-genai`](https://googleapis.github.io/pyt
 
 ## Make your own Gemlin
 
-1. Open the **Gemlin creator** site (or run it yourself: `python -m http.server -d creator 8000`, then open http://localhost:8000).
+1. Open the creator at **[gemlin.dev/create](https://gemlin.dev/create/)** (or run it yourself: `python -m http.server -d site 8000`, then open http://localhost:8000/create/).
 2. Pick a name, a personality, a hat and colors. Your Gemlin walks around a pretend desktop so you can see it.
 3. Copy the command at the bottom (it looks like `python3 gemlin.py --look eyJuYW1l...`) and run it in your gemlin folder.
 
@@ -84,7 +84,7 @@ Every time Gemlin uses a tool you'll see a line like `🔧 calling scan_download
 - **One safe action:** `quarantine_file(path)` moves one file into `~/Gemlin_Review` after you type `y`.
 - **Self-improvement:** `learn_skill(name, description, code)` lets the model write a new Python function. It prints the code, asks you `y/N`, then saves it to `skills/<name>.py` and installs it. The chat is rebuilt with the same history so the creature can use the new tool right away.
 - **Skills folder:** on startup every `skills/*.py` is loaded, and the function with the same name as the file becomes a tool. `skills/battery_status.py` is an example. Skills are meant to be committed and shared, so a skill that is **new or changed since you last approved it** (for example one you just pulled from a friend) is shown and needs your `y` before it loads. Your approvals are remembered in `.trusted_skills`, which is not committed.
-- **The pet** (`pet.py`) builds its sprites from the layered art in `creator/art/`, recolored with your `gemlin.json`. `pet.py` decides what the pet does, `pet_mac.py` draws it on a Mac (Cocoa) and `pet_tk.py` on Windows and Linux (tkinter). `gemlin.py` and the pet talk over a pipe, one JSON line per message.
+- **The pet** (`pet.py`) builds its sprites from the layered art in `site/art/`, recolored with your `gemlin.json`. `pet.py` decides what the pet does, `pet_mac.py` draws it on a Mac (Cocoa) and `pet_tk.py` on Windows and Linux (tkinter). `gemlin.py` and the pet talk over a pipe, one JSON line per message.
 - The SDK's **automatic function calling** does the plumbing. You pass Python functions as `tools=[...]`, and the SDK runs them when the model asks and sends the results back.
 
 ## Safety notes
@@ -112,20 +112,22 @@ python -m pytest
 
 The tests run offline (no API key needed) and use a fake home folder, so they never touch your files.
 
-## Deploying the creator site
+## The website (gemlin.dev)
 
-The creator is a plain static site in `creator/` (no build step). To put it on Cloudflare Pages:
+`site/` is the whole website, as plain static files with no build step: the home page (`site/index.html`), the creator (`site/create/`), the art (`site/art/`, which the desktop pet uses too) and `site/sprites.js`, which builds sprites the same way `pet.py` does. Preview it with `python -m http.server -d site 8000`.
+
+It's deployed to Cloudflare as a Worker with static assets (see `wrangler.jsonc`):
 
 ```bash
-npx wrangler pages deploy creator --project-name gemlin
+npx wrangler deploy
 ```
 
-If you add or change art in `creator/art/`, run `python pet.py --manifest` first so the site knows about it (a test checks this).
+If you add or change art in `site/art/`, run `python pet.py --manifest` first so the site knows about it (a test checks this).
 
 ## Hack ideas
 
-- Give your Gemlin a new name and persona with the creator (a dragon that hoards GPU memory? an anxious librarian?).
-- Draw a new hat: add a folder to `creator/art/hat/` with `still.png` and `side_still.png` (64 × 64, the art's key colors), then run `python pet.py --manifest`.
+- Give your Gemlin a new name and persona at [gemlin.dev/create](https://gemlin.dev/create/) (a dragon that hoards GPU memory? an anxious librarian?).
+- Draw a new hat: add a folder to `site/art/hat/` with `still.png` and `side_still.png` (64 × 64, the art's key colors), then run `python pet.py --manifest`.
 - Write a skill by hand in `skills/` (wifi info, screen time, git repos with uncommitted changes, ...).
 - Ask the creature to write a skill for you, then read it carefully before saying `y`.
 

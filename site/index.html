@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemlin</title>
+<meta name="description" content="A tiny AI creature that lives on your desktop, keeps an eye on your Downloads, and teaches itself new tricks. You approve every one.">
+<meta property="og:title" content="Gemlin">
+<meta property="og:description" content="A tiny AI creature that lives on your desktop and teaches itself new tricks. Powered by Gemma.">
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@600;700&display=swap">
+<style>
+/* Layout: a hero that is a little desktop full of Gemlins, then plain sections down one column. */
+:root {
+  color-scheme: dark;
+  --bg: #171c26; --panel: #202733; --raised: #283040; --line: #36404e;
+  --ink: #f6f3ec; --muted: #adb9c8; --mint: #9befd2; --mint-ink: #0f2a24; --lilac: #c19df6;
+  --paper: #fff4de; --outline: #0f1b27;
+  --display: "Pixelify Sans", ui-monospace, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); }
+a { color: var(--mint); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; }
+nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-block: 20px; flex-wrap: wrap; }
+nav .wordmark { font: 700 24px var(--display); color: var(--ink); text-decoration: none; letter-spacing: .5px; }
+nav .links { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+nav .links a { color: var(--muted); text-decoration: none; font-size: 15px; }
+nav .links a:hover { color: var(--ink); }
+.button { display: inline-block; font-weight: 650; text-decoration: none; border-radius: 10px; padding: 11px 18px; border: 1px solid var(--line); color: var(--ink); background: var(--panel); }
+.button.primary { background: var(--mint); color: var(--mint-ink); border-color: var(--mint); }
+.button:hover { border-color: var(--mint); }
+nav .links .button { padding: 7px 13px; font-size: 14px; color: var(--mint-ink); }
+
+h1, h2 { font-family: var(--display); font-weight: 700; letter-spacing: .3px; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(40px, 7vw, 72px); line-height: 1.02; }
+h2 { font-size: clamp(28px, 4vw, 38px); line-height: 1.1; }
+h3 { font-size: 18px; margin: 0; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.eyebrow { color: var(--mint); text-transform: uppercase; letter-spacing: 2px; font-size: 12px; font-weight: 700; }
+
+/* hero */
+.hero { display: grid; gap: 22px; padding-block: 28px 8px; }
+.hero .lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 58ch; }
+.hero .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.desktop { position: relative; height: 340px; margin-top: 18px; overflow: hidden; border-radius: 18px; border: 1px solid var(--line);
+  background: radial-gradient(120% 90% at 15% 0%, #34425c 0%, #222a3a 55%, #1b2130 100%); }
+.desktop .window { position: absolute; border-radius: 10px; background: #2a3242; border: 1px solid #3b4558; }
+.desktop .window::before { content: ""; position: absolute; left: 12px; top: 10px; width: 46px; height: 10px;
+  background: radial-gradient(circle, #ef6b5e 4px, transparent 4.5px) 0 0 / 16px 10px repeat-x; opacity: .8; }
+.desktop .window i { position: absolute; left: 14px; right: 30%; height: 7px; border-radius: 4px; background: #3a4458; }
+.desktop .dock { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: min(70%, 520px); height: 40px;
+  border-radius: 12px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); }
+.desktop canvas { position: absolute; left: 0; bottom: 56px; width: 128px; height: 128px; image-rendering: pixelated; }
+.bubble { position: absolute; left: 0; bottom: 186px; max-width: 250px; padding: 8px 12px; background: var(--paper); color: var(--outline);
+  border: 2px solid var(--outline); font-size: 14px; line-height: 1.35;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.bubble[hidden] { display: none; }
+
+section { padding-block: 64px 8px; display: grid; gap: 28px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 8px; align-content: start; }
+.card .tag { font: 600 12px var(--mono); color: var(--lilac); }
+.card p { color: var(--muted); font-size: 15px; }
+
+/* chat transcript */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 32px; align-items: center; }
+.split > div:first-child { display: grid; gap: 14px; }
+.terminal { background: #0f131b; border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; font: 14px/1.7 var(--mono); overflow-x: auto; }
+.terminal .you { color: var(--ink); }
+.terminal .you::before { content: "you> "; color: var(--mint); }
+.terminal .tool { color: #8592a6; }
+.terminal .gem { color: var(--paper); }
+.terminal .gem::before { content: "Gemlin> "; color: var(--lilac); }
+.terminal .ask { color: #f1c27d; }
+.terminal p + p { margin-top: 6px; }
+
+/* steps */
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: step; }
+ol.steps li { counter-increment: step; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; align-items: start; }
+ol.steps li::before { content: counter(step); font: 700 20px var(--display); color: var(--mint-ink); background: var(--mint); width: 40px; height: 40px;
+  border-radius: 10px; display: grid; place-items: center; }
+ol.steps .body { display: grid; gap: 8px; min-width: 0; }
+.code { position: relative; background: #0f131b; border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; padding-right: 70px;
+  font: 14px/1.6 var(--mono); color: var(--mint); white-space: pre-wrap; word-break: break-word; }
+.code button { position: absolute; top: 7px; right: 7px; font: 600 12px var(--sans); color: var(--ink); background: var(--raised);
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px; cursor: pointer; }
+.code button:hover { border-color: var(--mint); }
+.os-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: max-content; }
+.os-switch button { font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 0; padding: 6px 14px; cursor: pointer; }
+.os-switch button[aria-pressed=true] { background: var(--mint); color: var(--mint-ink); font-weight: 650; }
+[data-os-only][hidden] { display: none; }
+
+.workshop { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: clamp(20px, 4vw, 36px); display: grid; gap: 14px; }
+.workshop .when { font: 700 20px var(--display); color: var(--lilac); }
+.workshop ul { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
+
+footer { padding-block: 64px 40px; color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+footer a { color: var(--muted); }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .desktop { height: 300px; }
+  nav .links a:not(.button) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a href="/" class="wordmark">gemlin</a>
+    <div class="links">
+      <a href="#what">What it does</a>
+      <a href="#start">Get started</a>
+      <a href="#workshop">Workshop</a>
+      <a href="https://github.com/alexinslc/gemlin">GitHub</a>
+      <a href="/create/" class="button primary">Make your Gemlin</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <p class="eyebrow">Powered by Gemma · free to run</p>
+    <h1>A tiny AI creature that lives on your desktop.</h1>
+    <p class="lede">Gemlin walks along the bottom of your screen, keeps an eye on your Downloads, and teaches itself new tricks. You approve every one.</p>
+    <div class="actions">
+      <a class="button primary" href="/create/">Make your Gemlin</a>
+      <a class="button" href="#start">Get started</a>
+    </div>
+    <div class="desktop" id="desktop" aria-label="Gemlins walking across a pretend desktop">
+      <div class="window" style="left:6%;top:10%;width:44%;height:44%"><i style="top:40px"></i><i style="top:58px;right:45%"></i><i style="top:76px;right:38%"></i></div>
+      <div class="window" style="left:56%;top:16%;width:34%;height:34%"><i style="top:40px;right:20%"></i><i style="top:58px;right:50%"></i></div>
+      <div class="dock"></div>
+    </div>
+  </header>
+
+  <section id="what" aria-labelledby="what-title">
+    <h2 id="what-title">What it does</h2>
+    <div class="cards">
+      <article class="card"><span class="tag">senses</span><h3>Knows your laptop</h3><p>Checks your Downloads, finds the biggest files, spots busy processes, and reads disk space and battery. It sees names, sizes and dates, never what's inside your files.</p></article>
+      <article class="card"><span class="tag">desktop pet</span><h3>Lives on your screen</h3><p>Walks back and forth, turns to face you when it talks, and answers in speech bubbles. Click it to chat, or drag it somewhere else.</p></article>
+      <article class="card"><span class="tag">learn_skill</span><h3>Teaches itself tricks</h3><p>Ask for something it can't do yet and it writes a new Python tool. It shows you the code first, and nothing runs until you type <code>y</code>.</p></article>
+      <article class="card"><span class="tag">safe by default</span><h3>You're in charge</h3><p>Its tools only look; they never change anything. Its one action moves a file into a review folder, never deletes, and always asks first.</p></article>
+    </div>
+  </section>
+
+  <section aria-labelledby="chat-title">
+    <div class="split">
+      <div>
+        <h2 id="chat-title">Ask it anything about your laptop</h2>
+        <p class="muted">Chat in the terminal or click Gemlin on your desktop. Every time it uses a tool you'll see it, and anything that changes your machine waits for your <code>y</code>.</p>
+        <p class="muted">Want a new personality? A dragon that hoards big files, an anxious librarian? <a href="/create/">Make your own</a>.</p>
+      </div>
+      <div class="terminal" aria-label="Example conversation">
+        <p class="you">how bad is my Downloads folder?</p>
+        <p class="tool">  🔧 calling scan_downloads</p>
+        <p class="gem">142 files, 9.8 GB. Three copies of the same installer? Bold.</p>
+        <p class="you">learn a skill that counts my Downloads by file type</p>
+        <p class="tool">  🔧 calling learn_skill</p>
+        <p class="ask">  Install this skill? Only say y if you read and understand the code. [y/N]</p>
+        <p class="gem">Installed count_by_extension. Ask me again!</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="start" aria-labelledby="start-title">
+    <div style="display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap">
+      <h2 id="start-title">Get started</h2>
+      <div class="os-switch" role="group" aria-label="Your computer">
+        <button type="button" data-os="mac" aria-pressed="true">Mac / Linux</button>
+        <button type="button" data-os="windows" aria-pressed="false">Windows</button>
+      </div>
+    </div>
+    <p class="muted">You need Python 3.10 or newer and a Google account. It takes about five minutes.</p>
+    <ol class="steps">
+      <li><div class="body"><h3>Get a free API key</h3><p class="muted">At <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>. Keep it to yourself; never paste it into code.</p></div></li>
+      <li><div class="body"><h3>Download Gemlin</h3>
+        <div class="code">git clone https://github.com/alexinslc/gemlin
+cd gemlin<button type="button">Copy</button></div>
+        <p class="muted">No git? Use <a href="https://github.com/alexinslc/gemlin/archive/refs/heads/main.zip">Download ZIP</a>, unzip it, and open a terminal in the folder.</p></div></li>
+      <li><div class="body"><h3>Install it</h3>
+        <div class="code" data-os-only="mac">python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt<button type="button">Copy</button></div>
+        <div class="code" data-os-only="windows" hidden>python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt<button type="button">Copy</button></div></div></li>
+      <li><div class="body"><h3>Add your key</h3>
+        <div class="code" data-os-only="mac">export GEMINI_API_KEY="your-key-here"<button type="button">Copy</button></div>
+        <div class="code" data-os-only="windows" hidden>setx GEMINI_API_KEY "your-key-here"<button type="button">Copy</button></div>
+        <p class="muted" data-os-only="windows" hidden>Then close the terminal, open a new one in the gemlin folder, and run the activate line again.</p></div></li>
+      <li><div class="body"><h3>Wake it up</h3>
+        <div class="code" data-os-only="mac">python3 gemlin.py<button type="button">Copy</button></div>
+        <div class="code" data-os-only="windows" hidden>python gemlin.py<button type="button">Copy</button></div>
+        <p class="muted">Gemlin appears in your terminal and on your desktop. <a href="/create/">Make your own Gemlin</a> first if you like: the creator gives you one command that does it all.</p></div></li>
+    </ol>
+  </section>
+
+  <section id="workshop" aria-labelledby="workshop-title">
+    <div class="workshop">
+      <p class="eyebrow">The workshop</p>
+      <h2 id="workshop-title">Build your own at Hacktoberfest Hack Day</h2>
+      <p class="when">Draper × AMH · October 16, 2026</p>
+      <p class="muted">The theme is <em>AI belongs to everyone</em>. You'll get Gemlin running, give it a personality, and teach it a new skill of your own. No AI experience needed.</p>
+      <ul>
+        <li>Bring a laptop with Python 3.10 or newer.</li>
+        <li>Have a Google account ready for your free API key.</li>
+        <li>Curious what to build? Wifi info, screen time, git repos with uncommitted changes…</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <span>Gemlin is open source (MIT) · <a href="https://github.com/alexinslc/gemlin">GitHub</a></span>
+    <span>Runs <a href="https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api">Gemma 4 on the Gemini API</a> · <a href="https://ai.google.dev/gemma/terms">Gemma terms</a> · Free-tier chats may be used by Google, so don't type secrets.</span>
+  </footer>
+</div>
+<script src="/sprites.js"></script>
+<script>
+"use strict";
+// A few Gemlins wander the hero desktop. Their looks are just creator settings.
+const CREW = [
+  { parts: { body: "gem", eyes: "round", mouth: "smile", hat: "crown" }, colors: { body: "#31d3b4", accent: "#8e65d5", eyes: "#0f1b27" },
+    lines: ["Hi! I'm Gemlin.", "Your Downloads folder called. It's crying.", "Click “Make your Gemlin” to make one like me."] },
+  { parts: { body: "gem", eyes: "round", mouth: "smile", hat: "wizard_hat" }, colors: { body: "#ef8eb5", accent: "#6da7e2", eyes: "#0f1b27" },
+    lines: ["I learned a new spell. It counts files.", "Three copies of that installer? Bold."] },
+  { parts: { body: "gem", eyes: "round", mouth: "smile", hat: "headphones" }, colors: { body: "#e7bb54", accent: "#e58764", eyes: "#0f1b27" },
+    lines: ["What's that fan noise? Oh, it's Chrome.", "I only look. I never delete."] },
+];
+const desktop = document.getElementById("desktop");
+GemlinArt.load("/art").then((art) => {
+  const walkers = CREW.slice(0, desktop.clientWidth < 600 ? 2 : 3).map((look, i) => {
+    const canvas = Object.assign(document.createElement("canvas"), { width: 64, height: 64 });
+    canvas.setAttribute("aria-hidden", "true");
+    const bubble = Object.assign(document.createElement("div"), { className: "bubble", hidden: true });
+    desktop.append(bubble, canvas);
+    const walker = new GemlinArt.Walker({ stage: desktop, canvas, bubble, composer: GemlinArt.composer(art, look),
+                                          lines: look.lines, chatty: 0.3, x: 40 + i * (desktop.clientWidth / 3) });
+    canvas.addEventListener("click", () => walker.sayNext());
+    canvas.style.cursor = "pointer";
+    return walker;
+  });
+  walkers[0].say("Hi! I'm Gemlin.");
+  setInterval(() => walkers.forEach((w) => w.step()), 40);
+}).catch(() => {});
+
+// Mac/Windows commands
+const os = /Win/.test(navigator.platform) ? "windows" : "mac";
+function showOs(which) {
+  document.querySelectorAll("[data-os]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.os === which)));
+  document.querySelectorAll("[data-os-only]").forEach((el) => { el.hidden = el.dataset.osOnly !== which; });
+}
+document.querySelectorAll("[data-os]").forEach((b) => b.addEventListener("click", () => showOs(b.dataset.os)));
+showOs(os);
+
+// Copy buttons
+document.querySelectorAll(".code button").forEach((button) => button.addEventListener("click", async () => {
+  const text = button.parentElement.firstChild.textContent.trim();
+  try { await navigator.clipboard.writeText(text); button.textContent = "Copied"; }
+  catch { getSelection().selectAllChildren(button.parentElement); button.textContent = "Selected"; }
+  setTimeout(() => { button.textContent = "Copy"; }, 1600);
+}));
+</script>
+</body>
+</html>

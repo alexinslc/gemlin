@@ -1,8 +1,8 @@
 """Gemlin's desktop pet: a little creature that walks along the bottom of your screen.
 
 gemlin.py starts it for you (or run `python pet.py` to just watch it walk). It builds
-its sprites from the art in creator/art, recolored with your gemlin.json. Make your
-look at the creator site, then run the `python gemlin.py --look ...` command it gives you.
+its sprites from the art in site/art, recolored with your gemlin.json. Make your look
+at https://gemlin.dev/create, then run the `python gemlin.py --look ...` command it gives you.
 
 This file decides what the pet does (the Brain). The windows are drawn by pet_mac.py
 on a Mac and pet_tk.py on Windows and Linux.
@@ -17,14 +17,13 @@ from contextlib import suppress
 from pathlib import Path
 
 HERE = Path(__file__).parent
-ART, SETTINGS = HERE / "creator" / "art", HERE / "gemlin.json"
+ART, SETTINGS = HERE / "site" / "art", HERE / "gemlin.json"
 DEFAULTS = {
     "name": "Gemlin",
     "personality": "a cheeky little creature who lives inside this laptop. You love tidy disks "
                    "and tease your owner about their file hoarding. Keep replies short.",
     "parts": {"body": "gem", "eyes": "round", "mouth": "smile", "hat": "crown"},
     "colors": {"body": "#31d3b4", "accent": "#8e65d5", "eyes": "#0f1b27"},
-    "walk": "side",
 }
 FIRST_FRAME = {"body": "stand", "eyes": "open", "mouth": "closed", "hat": "still"}
 FALLBACK = {"walk_2": "walk_1", "walk_1": "stand", "blink": "open", "talk_1": "closed"}
@@ -55,8 +54,6 @@ def clean(raw):
     for key in me["colors"]:
         if isinstance(colors.get(key), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", colors[key]):
             me["colors"][key] = colors[key].lower()
-    if raw.get("walk") in ("side", "front"):
-        me["walk"] = raw["walk"]
     return me
 
 def load_settings():
@@ -346,9 +343,8 @@ class Brain:
         if self.tick >= self.blink_at + 4:
             self.blink_at = self.tick + random.randint(60, 150)
         eyes = "blink" if self.tick >= self.blink_at else "open"
-        if walking:
-            view = self.me["walk"]
-            self.frame = (view, self.art.steps(view)[anim % 2], eyes, "closed", self.left)
+        if walking:  # sideways, facing where it's going
+            self.frame = ("side", self.art.steps("side")[anim % 2], eyes, "closed", self.left)
             self.lift = 2 * SCALE * (anim % 2)  # a little bounce in each step
         else:  # standing still: turn to face you
             talking = self.mode == "talk" and self.tick < self.talk_until and anim % 2
