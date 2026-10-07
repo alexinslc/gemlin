@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemlin Creator</title>
+<meta name="description" content="Design your own Gemlin, the little AI creature that lives on your desktop.">
+<style>
+/* Layout: a "desktop" stage where your Gemlin walks, controls beside it, and the command to take it home below. */
+:root {
+  color-scheme: dark;
+  --bg: #171c26; --panel: #202733; --raised: #283040; --line: #36404e;
+  --ink: #f6f3ec; --muted: #adb9c8; --mint: #9befd2; --mint-ink: #0f2a24;
+  --paper: #fff4de; --charcoal: #0f1b27;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+main { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: grid; gap: 28px; }
+h1 { font-size: clamp(30px, 5vw, 40px); line-height: 1.1; letter-spacing: -1px; margin: 6px 0 8px; text-wrap: balance; }
+h2 { font-size: 18px; letter-spacing: -.2px; margin: 0; }
+p { margin: 0; color: var(--muted); }
+.eyebrow { color: var(--mint); text-transform: uppercase; letter-spacing: 2px; font-size: 11px; font-weight: 700; }
+.panel { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+
+.studio { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+
+/* the pretend desktop */
+.desktop { position: relative; height: 380px; overflow: hidden; border-radius: 16px; border: 1px solid var(--line);
+  background: radial-gradient(120% 90% at 20% 10%, #33405a 0%, #222a3a 55%, #1b2130 100%); }
+.desktop .window { position: absolute; left: 7%; top: 10%; width: 52%; height: 46%; border-radius: 10px; background: #2a3242; border: 1px solid #3b4558; }
+.desktop .window::before { content: ""; position: absolute; left: 12px; top: 10px; width: 46px; height: 10px;
+  background: radial-gradient(circle, #ef6b5e 4px, transparent 4.5px) 0 0 / 16px 10px repeat-x; opacity: .8; }
+.desktop .window i { position: absolute; left: 14px; right: 30%; height: 7px; border-radius: 4px; background: #3a4458; }
+.desktop .dock { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: min(70%, 420px); height: 40px;
+  border-radius: 12px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); }
+#pet { position: absolute; left: 0; bottom: 56px; width: 128px; height: 128px; image-rendering: pixelated; cursor: pointer; }
+#bubble { position: absolute; bottom: 186px; left: 0; max-width: 260px; padding: 9px 13px; background: var(--paper); color: var(--charcoal);
+  border: 2px solid var(--charcoal); font-size: 14px; line-height: 1.35;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+#bubble[hidden] { display: none; }
+.stage-note { position: absolute; top: 12px; right: 14px; font-size: 12px; color: #8592a6; }
+
+/* controls */
+.controls { padding: 20px; display: grid; gap: 18px; }
+.group { display: grid; gap: 8px; }
+.group > label, .group > .label { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+input[type=text], textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+textarea { min-height: 96px; resize: vertical; font-size: 14px; }
+input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; cursor: pointer; }
+button:hover { border-color: var(--mint); }
+.chips button { font-size: 13px; border-radius: 99px; padding: 4px 11px; }
+.chips button[aria-pressed=true] { border-color: var(--mint); color: var(--mint); }
+.colors { display: grid; gap: 10px; }
+.color-row { display: grid; grid-template-columns: 70px 40px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px; }
+input[type=color] { width: 40px; height: 30px; padding: 2px; border: 1px solid var(--line); background: var(--bg); border-radius: 7px; cursor: pointer; }
+.swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.swatches button { width: 18px; height: 18px; padding: 0; border-radius: 5px; border: 1px solid rgba(0,0,0,.35); }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: max-content; }
+.segmented button { border: 0; border-radius: 0; padding: 6px 14px; }
+.segmented button[aria-pressed=true] { background: var(--mint); color: var(--mint-ink); font-weight: 650; }
+.shuffle { width: 100%; background: var(--raised); }
+
+/* hats */
+.hats { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; }
+.hat { display: grid; gap: 4px; justify-items: center; padding: 10px 6px 8px; border-radius: 12px; background: var(--panel); }
+.hat canvas { width: 80px; height: 80px; image-rendering: pixelated; }
+.hat span { font-size: 13px; }
+.hat[aria-pressed=true] { border-color: var(--mint); box-shadow: inset 0 0 0 1px var(--mint); }
+.section-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+/* take it home */
+.home { padding: 22px; display: grid; gap: 14px; }
+.home ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--muted); }
+.home ol b { color: var(--ink); font-weight: 600; }
+.command { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.command code { display: block; font: 13px/1.55 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; word-break: break-all; color: var(--mint); max-height: 140px; overflow: auto; }
+.copy { background: var(--mint); color: var(--mint-ink); border: 0; font-weight: 650; padding: 10px 16px; }
+#copied { min-height: 1.5em; font-size: 13px; color: var(--mint); }
+.problem { border-left: 3px solid #ef8e6b; padding: 6px 14px; }
+.problem[hidden] { display: none; }
+footer { font-size: 12px; color: var(--muted); }
+code.inline { font: 13px var(--mono); color: var(--ink); }
+
+@media (max-width: 860px) {
+  .studio { grid-template-columns: minmax(0, 1fr); }
+  .desktop { height: 320px; }
+}
+@media (prefers-reduced-motion: reduce) { #pet { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Gemlin / creator</div>
+    <h1>Make your Gemlin.</h1>
+    <p>Pick a name, a personality, a hat and colors. Then copy one command and your Gemlin moves onto your desktop.</p>
+  </header>
+
+  <p class="problem" id="problem" hidden></p>
+
+  <section class="studio" aria-label="Design your Gemlin">
+    <div class="desktop" id="desktop" aria-label="Preview: your Gemlin walking on a desktop">
+      <div class="window"><i style="top:40px"></i><i style="top:58px;right:45%"></i><i style="top:76px;right:38%"></i></div>
+      <span class="stage-note">Preview · click Gemlin</span>
+      <div id="bubble" hidden></div>
+      <canvas id="pet" width="64" height="64" aria-label="Your Gemlin"></canvas>
+      <div class="dock"></div>
+    </div>
+
+    <div class="panel controls">
+      <div class="group">
+        <label for="name">Name</label>
+        <input type="text" id="name" maxlength="24" value="Gemlin" autocomplete="off">
+      </div>
+      <div class="group">
+        <label for="personality">Personality</label>
+        <div class="chips" id="presets" aria-label="Personality ideas"></div>
+        <textarea id="personality" maxlength="600" aria-describedby="persona-hint"></textarea>
+        <p class="small" id="persona-hint" style="font-size:12px">Starts with "You are <span id="persona-name">Gemlin</span>, …". This becomes its personality in chat.</p>
+      </div>
+      <div class="group colors" aria-label="Colors">
+        <span class="label">Colors</span>
+        <div class="color-row"><label for="c-body">Body</label><input type="color" id="c-body"><div class="swatches" data-for="c-body"></div></div>
+        <div class="color-row"><label for="c-accent">Hat</label><input type="color" id="c-accent"><div class="swatches" data-for="c-accent"></div></div>
+        <div class="color-row"><label for="c-eyes">Eyes</label><input type="color" id="c-eyes"><div class="swatches" data-for="c-eyes"></div></div>
+      </div>
+      <div class="group">
+        <span class="label">Walks</span>
+        <div class="segmented" role="group" aria-label="How it walks">
+          <button type="button" data-walk="side" aria-pressed="true">Sideways</button>
+          <button type="button" data-walk="front" aria-pressed="false">Facing you</button>
+        </div>
+      </div>
+      <button type="button" class="shuffle" id="shuffle">↻ Shuffle hat and colors</button>
+    </div>
+  </section>
+
+  <section class="group" aria-labelledby="hats-title">
+    <div class="section-top"><h2 id="hats-title">Pick a hat</h2><p>Click one to wear it.</p></div>
+    <div class="hats" id="hats"></div>
+  </section>
+
+  <section class="panel home" aria-labelledby="home-title">
+    <div class="section-top">
+      <h2 id="home-title">Bring it to your desktop</h2>
+      <div class="segmented" role="group" aria-label="Your computer">
+        <button type="button" data-os="mac" aria-pressed="true">Mac</button>
+        <button type="button" data-os="windows" aria-pressed="false">Windows</button>
+      </div>
+    </div>
+    <ol>
+      <li>Open a terminal <b>in your gemlin folder</b> (the one with <code class="inline">gemlin.py</code>).</li>
+      <li>Copy this command, paste it in, and press <b>Enter</b>.</li>
+    </ol>
+    <div class="command">
+      <code id="command"></code>
+      <button type="button" class="copy" id="copy">Copy</button>
+    </div>
+    <p id="copied" role="status" aria-live="polite"></p>
+    <p style="font-size:13px">It saves your look in <code class="inline">gemlin.json</code> and wakes your Gemlin up. Already running? Type <code class="inline">quit</code> first. Change your mind later? Come back, tweak, and copy again.</p>
+  </section>
+
+  <footer>Gemlin · Hacktoberfest Hack Day Draper × AMH · Your choices stay in this browser until you copy the command.</footer>
+</main>
+<script src="creator.js"></script>
+</body>
+</html>

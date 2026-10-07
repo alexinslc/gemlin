@@ -1,0 +1,235 @@
+"""The pet's windows on a Mac, drawn with Cocoa through PyObjC (pip install -r requirements.txt).
+
+Tk can't make see-through windows on current macOS, so the Mac gets its own window code.
+All the decisions live in pet.py's Brain; this file only draws and listens to the mouse.
+"""
+import signal
+
+import AppKit
+import objc
+from Foundation import NSData, NSMakeRect, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
+from PyObjCTools import AppHelper
+
+from pet import HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, bubble_shape, png
+
+FONT, SMALL = AppKit.NSFont.systemFontOfSize_(13), AppKit.NSFont.systemFontOfSize_(10)
+
+def color(hex_color):
+    r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+
+def styled(text, font, hex_color):
+    attrs = {AppKit.NSFontAttributeName: font, AppKit.NSForegroundColorAttributeName: color(hex_color)}
+    return AppKit.NSAttributedString.alloc().initWithString_attributes_(text, attrs)
+
+def measure(text):
+    return text.boundingRectWithSize_options_((TEXT_WIDTH, 10_000), AppKit.NSStringDrawingUsesLineFragmentOrigin).size
+
+def clear_window(w, h, kind=AppKit.NSWindow):
+    """A borderless, see-through window that floats above everything, on every desktop."""
+    win = kind.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(0, 0, w, h), AppKit.NSWindowStyleMaskBorderless, AppKit.NSBackingStoreBuffered, False)
+    win.setOpaque_(False)
+    win.setBackgroundColor_(AppKit.NSColor.clearColor())
+    win.setHasShadow_(False)
+    win.setLevel_(AppKit.NSFloatingWindowLevel)
+    win.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
+                               | AppKit.NSWindowCollectionBehaviorStationary)
+    win.setReleasedWhenClosed_(False)
+    return win
+
+class KeyWindow(AppKit.NSWindow):  # borderless windows can't take typing unless they say so
+    def canBecomeKeyWindow(self):
+        return True
+
+class FlippedView(AppKit.NSView):  # y points down, like everywhere else in Gemlin
+    def isFlipped(self):
+        return True
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+class PetView(FlippedView):
+    def drawRect_(self, rect):
+        if self.image:
+            AppKit.NSGraphicsContext.currentContext().setImageInterpolation_(AppKit.NSImageInterpolationNone)
+            self.image.drawInRect_fromRect_operation_fraction_respectFlipped_hints_(
+                NSMakeRect(0, HOP - self.lift, SIZE, SIZE), AppKit.NSZeroRect,
+                AppKit.NSCompositingOperationSourceOver, 1.0, True, None)
+
+    def mouseDown_(self, event):
+        self.owner.mouse("down")
+
+    def mouseDragged_(self, event):
+        self.owner.mouse("drag")
+
+    def mouseUp_(self, event):
+        self.owner.mouse("up")
+
+class BubbleView(FlippedView):
+    def drawRect_(self, rect):
+        w, h = self.size
+        path = AppKit.NSBezierPath.bezierPath()
+        first, *rest = bubble_shape(w, h)
+        path.moveToPoint_(first)
+        for point in rest:
+            path.lineToPoint_(point)
+        path.closePath()
+        color(PAPER).setFill()
+        path.fill()
+        color(INK).setStroke()
+        path.setLineWidth_(2)
+        path.stroke()
+        self.text.drawWithRect_options_(NSMakeRect(PAD + 2, PAD - 2, TEXT_WIDTH, h),
+                                        AppKit.NSStringDrawingUsesLineFragmentOrigin)
+        if self.footer:
+            width = self.footer.size().width
+            self.footer.drawAtPoint_((w - PAD - width, h - PAD - 6))
+
+    def mouseDown_(self, event):
+        self.owner.brain.bubble_clicked()
+
+class ChatView(FlippedView):
+    def drawRect_(self, rect):
+        box = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(1, 1, 298, 80), 6, 6)
+        color(PAPER).setFill()
+        box.fill()
+        color(INK).setStroke()
+        box.setLineWidth_(2)
+        box.stroke()
+
+class MacPet(NSObject):
+    @objc.python_method
+    def setup(self, me, follow):
+        screen = AppKit.NSScreen.screens()[0]
+        whole, usable = screen.frame(), screen.visibleFrame()
+        self.top = whole.size.height  # Cocoa counts y up from the bottom; Brain counts down from the top
+        self.brain = Brain(me, int(whole.size.width), int(self.top - usable.origin.y), follow)
+        self.images, self.shown, self.chat = {}, None, None
+        self.win = clear_window(SIZE, SIZE + HOP)
+        self.view = PetView.alloc().initWithFrame_(NSMakeRect(0, 0, SIZE, SIZE + HOP))
+        self.view.owner, self.view.image, self.view.lift = self, None, 0
+        self.win.setContentView_(self.view)
+        self.bubble_win = clear_window(10, 10)
+        self.bubble = BubbleView.alloc().initWithFrame_(NSMakeRect(0, 0, 10, 10))
+        self.bubble.owner, self.bubble.size = self, (10, 10)  # drawRect_ can run before the first bubble
+        self.bubble.text, self.bubble.footer = styled("", FONT, INK), None
+        self.bubble_win.setContentView_(self.bubble)
+        self.menu = AppKit.NSMenu.alloc().init()
+        for title, action in (("Chat", "openChat:"), ("Stay here", "toggleWander:"), ("Go to sleep", "goToSleep:")):
+            self.menu.addItemWithTitle_action_keyEquivalent_(title, action, "").setTarget_(self)
+        self.view.setMenu_(self.menu)  # right-click or control-click
+        self.tick_(None)
+        self.win.orderFrontRegardless()
+        timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(TICK / 1000, self, "tick:", None, True)
+        NSRunLoop.currentRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)  # keeps going while dragging
+
+    @objc.python_method
+    def place(self, win, x, y):
+        win.setFrameOrigin_((x, self.top - y - win.frame().size.height))
+
+    @objc.python_method
+    def mouse(self, what):
+        where = AppKit.NSEvent.mouseLocation()
+        x, y = where.x, self.top - where.y
+        if what == "down":
+            self.brain.pick_up(x, y)
+        elif what == "drag":
+            self.brain.drag(x, y)
+        else:
+            self.brain.drop()
+
+    def tick_(self, timer):
+        b = self.brain
+        b.step()
+        if b.done:
+            AppKit.NSApp.terminate_(None)
+            return
+        if b.frame not in self.images:
+            data = png(b.art.frame(*b.frame), scale=SCALE * 2)  # extra pixels keep it crisp on Retina screens
+            image = AppKit.NSImage.alloc().initWithData_(NSData.dataWithBytes_length_(data, len(data)))
+            image.setSize_((SIZE, SIZE))
+            self.images[b.frame] = image
+        if (self.view.image, self.view.lift) != (self.images[b.frame], b.lift):
+            self.view.image, self.view.lift = self.images[b.frame], b.lift
+            self.view.setNeedsDisplay_(True)
+        self.place(self.win, b.x, b.y)
+        self.sync_bubble(None if b.chatting else b.bubble)
+        self.sync_chat()
+
+    @objc.python_method
+    def sync_bubble(self, want):
+        if want != self.shown:
+            self.shown = want
+            if not want:
+                self.bubble_win.orderOut_(None)
+                return
+            text, footer = want
+            self.bubble.text = styled(text, FONT, INK)
+            self.bubble.footer = styled(footer, SMALL, MUTED) if footer else None
+            size = measure(self.bubble.text)
+            w, h = max(int(size.width) + 2 * PAD + 6, 70), int(size.height) + 2 * PAD - 2 + (14 if footer else 0)
+            self.bubble.size = (w, h)
+            self.bubble_win.setContentSize_((w, h + TAIL))
+            self.bubble.setFrame_(NSMakeRect(0, 0, w, h + TAIL))
+            self.bubble.setNeedsDisplay_(True)
+            self.bubble_win.orderFrontRegardless()
+        if want:
+            self.place(self.bubble_win, *above_pet(self.brain, *self.bubble.size))
+
+    @objc.python_method
+    def sync_chat(self):
+        if self.brain.chatting and not self.chat:
+            self.chat = clear_window(300, 82, KeyWindow)
+            view = ChatView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 82))
+            for text, y, font, ink in ((f"Say something to {self.brain.me['name']}", 8, SMALL, INK),
+                                       ("Enter to send · Esc to close", 60, SMALL, MUTED)):
+                label = AppKit.NSTextField.labelWithAttributedString_(styled(text, font, ink))
+                label.setFrame_(NSMakeRect(12, y, 276, 16))
+                view.addSubview_(label)
+            field = AppKit.NSTextField.alloc().initWithFrame_(NSMakeRect(12, 28, 276, 26))
+            field.setFont_(FONT)
+            field.setTarget_(self)
+            field.setAction_("send:")
+            field.setDelegate_(self)
+            view.addSubview_(field)
+            self.chat.setContentView_(view)
+            self.place(self.chat, *above_pet(self.brain, 300, 82, tail_x=150))
+            app = AppKit.NSApp
+            app.activate() if hasattr(app, "activate") else app.activateIgnoringOtherApps_(True)
+            self.chat.makeKeyAndOrderFront_(None)
+            self.chat.makeFirstResponder_(field)
+        elif not self.brain.chatting and self.chat:
+            self.chat.orderOut_(None)
+            self.chat = None
+            if hasattr(AppKit.NSApp, "deactivate"):
+                AppKit.NSApp.deactivate()  # hand the keyboard back to what you were doing
+
+    def send_(self, field):
+        self.brain.heard(field.stringValue())
+
+    @objc.typedSelector(b"Z@:@@:")
+    def control_textView_doCommandBySelector_(self, control, view, command):
+        if "cancelOperation" in str(command):  # Esc
+            self.brain.chatting = False
+            return True
+        return False
+
+    def openChat_(self, item):
+        self.brain.chatting = True
+
+    def toggleWander_(self, item):
+        self.brain.toggle_wander()
+        item.setTitle_("Stay here" if self.brain.wander else "Walk around")
+
+    def goToSleep_(self, item):
+        self.brain.done = True
+
+def run(me, follow):
+    app = AppKit.NSApplication.sharedApplication()
+    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)  # no Dock icon
+    pet = MacPet.alloc().init()
+    pet.setup(me, follow)
+    if follow:  # Ctrl+C is for gemlin.py; we leave when it does
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    AppHelper.runEventLoop(installInterrupt=not follow)

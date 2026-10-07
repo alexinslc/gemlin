@@ -1,0 +1,61 @@
+{
+ "body": {
+  "gem": [
+   "side_stand",
+   "side_walk_1",
+   "side_walk_2",
+   "stand",
+   "walk_1"
+  ]
+ },
+ "eyes": {
+  "round": [
+   "blink",
+   "open",
+   "side_blink",
+   "side_open"
+  ]
+ },
+ "mouth": {
+  "smile": [
+   "closed",
+   "side_closed",
+   "side_talk_1",
+   "talk_1"
+  ]
+ },
+ "hat": {
+  "beanie": [
+   "side_still",
+   "still"
+  ],
+  "bow": [
+   "side_still",
+   "still"
+  ],
+  "cap": [
+   "side_still",
+   "still"
+  ],
+  "crown": [
+   "side_still",
+   "still"
+  ],
+  "headphones": [
+   "side_still",
+   "still"
+  ],
+  "horns": [
+   "side_still",
+   "still"
+  ],
+  "space_helmet": [
+   "side_still",
+   "still"
+  ],
+  "wizard_hat": [
+   "side_still",
+   "still"
+  ]
+ }
+}
