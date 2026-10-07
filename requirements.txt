@@ -1,3 +1,0 @@
-google-genai~=2.28.0
-psutil~=7.2
-pyobjc-framework-Cocoa~=12.2; sys_platform == "darwin"  # the desktop pet's see-through window on Mac

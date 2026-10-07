@@ -27,7 +27,7 @@ const LINES = ["Hi, I'm {name}!", "Your Downloads folder called. It's crying.", 
                "Ask me what's eating your disk.", "I can learn new tricks. With your permission!"];
 const $ = (id) => document.getElementById(id);
 
-let art, gemlin, walker, me = structuredClone(DEFAULTS), os = /Win/.test(navigator.platform) ? "windows" : "mac";
+let art, gemlin, walker, me = structuredClone(DEFAULTS);
 const named = (text) => text.replace("{name}", me.name.trim() || "Gemlin");
 
 function remember() { try { localStorage.setItem("gemlin", JSON.stringify(me)); } catch {} }
@@ -53,10 +53,9 @@ const label = (hat) => hat === "none" ? "No hat" : hat.replace(/_/g, " ").replac
 
 function changed({ hats = false } = {}) {
   $("persona-name").textContent = me.name.trim() || "Gemlin";
-  $("command").textContent = `${os === "mac" ? "python3" : "python"} gemlin.py --look ${lookCode()}`;
+  $("command").textContent = `gemlin look ${lookCode()}`;
   $("copied").textContent = "";
   for (const key of ["body", "accent", "eyes"]) $(`c-${key}`).value = me.colors[key];
-  document.querySelectorAll("[data-os]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.os === os)));
   document.querySelectorAll("#presets button").forEach((b) => b.setAttribute("aria-pressed", String(PRESETS[b.textContent] === me.personality)));
   if (hats) drawHats();
   remember();
@@ -91,7 +90,6 @@ function setup() {
     }
     $(`c-${key}`).addEventListener("input", (e) => { me.colors[key] = e.target.value; changed({ hats: true }); });
   }
-  document.querySelectorAll("[data-os]").forEach((b) => b.addEventListener("click", () => { os = b.dataset.os; changed(); }));
   for (const hat of [...Object.keys(art.manifest.hat), "none"]) {
     const card = Object.assign(document.createElement("button"), { type: "button", className: "panel hat" });
     card.dataset.hat = hat;
@@ -108,7 +106,7 @@ function setup() {
   $("copy").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText($("command").textContent);
-      $("copied").textContent = "Copied. Paste it into your terminal in the gemlin folder.";
+      $("copied").textContent = "Copied! Paste it into Gemlin's chat window and press Enter.";
     } catch {
       getSelection().selectAllChildren($("command"));
       $("copied").textContent = "Selected. Press Ctrl+C (or ⌘C) to copy.";
@@ -135,7 +133,7 @@ async function start() {
   } catch {
     $("problem").hidden = false;
     $("problem").textContent = location.protocol === "file:"
-      ? "This page needs to be opened from a web server. In the gemlin folder run: python -m http.server -d site 8000, then open http://localhost:8000/create/"
+      ? "This page needs a web server. In the gemlin folder run: python -m http.server -d site 8000, then open http://localhost:8000/create/"
       : "Couldn't load the Gemlin art. Refresh the page to try again.";
   }
 }

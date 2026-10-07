@@ -4,15 +4,18 @@ Tk can't make see-through windows on current macOS, so the Mac gets its own wind
 All the decisions live in pet.py's Brain; this file only draws and listens to the mouse.
 """
 import signal
+import webbrowser
 
 import AppKit
 import objc
 from Foundation import NSData, NSMakeRect, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 from PyObjCTools import AppHelper
 
-from pet import HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, bubble_shape, png
+from .pet import (HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, beside_pet,
+                 bubble_shape, png, review_spot)
 
 FONT, SMALL = AppKit.NSFont.systemFontOfSize_(13), AppKit.NSFont.systemFontOfSize_(10)
+CODE = AppKit.NSFont.monospacedSystemFontOfSize_weight_(11.5, 0)
 
 def color(hex_color):
     r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
@@ -36,7 +39,33 @@ def clear_window(w, h, kind=AppKit.NSWindow):
     win.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
                                | AppKit.NSWindowCollectionBehaviorStationary)
     win.setReleasedWhenClosed_(False)
+    win.setAppearance_(AppKit.NSAppearance.appearanceNamed_(AppKit.NSAppearanceNameAqua))  # light, like the cream panels
     return win
+
+def native_panel(w, h):
+    """A rounded, see-through panel that looks like a macOS popover and follows light/dark mode.
+    Returns the window and a top-down view to put things in."""
+    win = clear_window(w, h, KeyWindow)
+    win.setAppearance_(None)  # unlike the pet and its bubble, the chat follows the system look
+    win.setHasShadow_(True)
+    blur = AppKit.NSVisualEffectView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+    blur.setMaterial_(AppKit.NSVisualEffectMaterialPopover)
+    blur.setBlendingMode_(AppKit.NSVisualEffectBlendingModeBehindWindow)
+    blur.setState_(AppKit.NSVisualEffectStateActive)
+    blur.setWantsLayer_(True)
+    blur.layer().setCornerRadius_(12)
+    blur.layer().setMasksToBounds_(True)
+    inside = FlippedView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+    blur.addSubview_(inside)
+    win.setContentView_(blur)
+    return win, inside
+
+def label(text, size=12, secondary=False, bold=False):
+    field = AppKit.NSTextField.labelWithString_(text)
+    field.setFont_(AppKit.NSFont.boldSystemFontOfSize_(size) if bold else AppKit.NSFont.systemFontOfSize_(size))
+    if secondary:
+        field.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+    return field
 
 class KeyWindow(AppKit.NSWindow):  # borderless windows can't take typing unless they say so
     def canBecomeKeyWindow(self):
@@ -89,15 +118,6 @@ class BubbleView(FlippedView):
     def mouseDown_(self, event):
         self.owner.brain.bubble_clicked()
 
-class ChatView(FlippedView):
-    def drawRect_(self, rect):
-        box = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(1, 1, 298, 80), 6, 6)
-        color(PAPER).setFill()
-        box.fill()
-        color(INK).setStroke()
-        box.setLineWidth_(2)
-        box.stroke()
-
 class MacPet(NSObject):
     @objc.python_method
     def setup(self, me, follow):
@@ -105,7 +125,7 @@ class MacPet(NSObject):
         whole, usable = screen.frame(), screen.visibleFrame()
         self.top = whole.size.height  # Cocoa counts y up from the bottom; Brain counts down from the top
         self.brain = Brain(me, int(whole.size.width), int(self.top - usable.origin.y), follow)
-        self.images, self.shown, self.chat = {}, None, None
+        self.images, self.shown, self.chat, self.review, self.look_version = {}, None, None, None, 0
         self.win = clear_window(SIZE, SIZE + HOP)
         self.view = PetView.alloc().initWithFrame_(NSMakeRect(0, 0, SIZE, SIZE + HOP))
         self.view.owner, self.view.image, self.view.lift = self, None, 0
@@ -116,7 +136,8 @@ class MacPet(NSObject):
         self.bubble.text, self.bubble.footer = styled("", FONT, INK), None
         self.bubble_win.setContentView_(self.bubble)
         self.menu = AppKit.NSMenu.alloc().init()
-        for title, action in (("Chat", "openChat:"), ("Stay here", "toggleWander:"), ("Go to sleep", "goToSleep:")):
+        for title, action in (("Chat", "openChat:"), ("Customize me…", "customize:"), ("Stay here", "toggleWander:"),
+                              ("Go to sleep", "goToSleep:")):
             self.menu.addItemWithTitle_action_keyEquivalent_(title, action, "").setTarget_(self)
         self.view.setMenu_(self.menu)  # right-click or control-click
         self.tick_(None)
@@ -145,6 +166,8 @@ class MacPet(NSObject):
         if b.done:
             AppKit.NSApp.terminate_(None)
             return
+        if b.look_version != self.look_version:  # new look: rebuild the sprites
+            self.images, self.look_version = {}, b.look_version
         if b.frame not in self.images:
             data = png(b.art.frame(*b.frame), scale=SCALE * 2)  # extra pixels keep it crisp on Retina screens
             image = AppKit.NSImage.alloc().initWithData_(NSData.dataWithBytes_length_(data, len(data)))
@@ -154,8 +177,9 @@ class MacPet(NSObject):
             self.view.image, self.view.lift = self.images[b.frame], b.lift
             self.view.setNeedsDisplay_(True)
         self.place(self.win, b.x, b.y)
-        self.sync_bubble(None if b.chatting else b.bubble)
+        self.sync_bubble(b.bubble)
         self.sync_chat()
+        self.sync_review()
 
     @objc.python_method
     def sync_bubble(self, want):
@@ -178,35 +202,107 @@ class MacPet(NSObject):
             self.place(self.bubble_win, *above_pet(self.brain, *self.bubble.size))
 
     @objc.python_method
+    def focus(self, win, view):  # take the keyboard so you can type straight away
+        app = AppKit.NSApp
+        app.activate() if hasattr(app, "activate") else app.activateIgnoringOtherApps_(True)
+        win.makeKeyAndOrderFront_(None)
+        win.makeFirstResponder_(view)
+
+    @objc.python_method
     def sync_chat(self):
-        if self.brain.chatting and not self.chat:
-            self.chat = clear_window(300, 82, KeyWindow)
-            view = ChatView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 82))
-            for text, y, font, ink in ((f"Say something to {self.brain.me['name']}", 8, SMALL, INK),
-                                       ("Enter to send · Esc to close", 60, SMALL, MUTED)):
-                label = AppKit.NSTextField.labelWithAttributedString_(styled(text, font, ink))
-                label.setFrame_(NSMakeRect(12, y, 276, 16))
-                view.addSubview_(label)
-            field = AppKit.NSTextField.alloc().initWithFrame_(NSMakeRect(12, 28, 276, 26))
-            field.setFont_(FONT)
+        b = self.brain
+        mode = (b.needs_key, b.button, b.me["name"])
+        if self.chat and (not b.chatting or mode != self.chat_mode):
+            self.chat.orderOut_(None)
+            self.chat = None
+            if not b.chatting and hasattr(AppKit.NSApp, "deactivate"):
+                AppKit.NSApp.deactivate()  # hand the keyboard back to what you were doing
+        if b.chatting and not self.chat:
+            w, h = 300, 88
+            self.chat, view = native_panel(w, h)
+            self.chat_mode = mode
+            view.addSubview_(title := label("Paste your API key" if b.needs_key else f"Chat with {b.me['name']}", bold=True))
+            title.setFrame_(NSMakeRect(14, 10, w - 28, 16))
+            field = (AppKit.NSSecureTextField if b.needs_key else AppKit.NSTextField).alloc().initWithFrame_(
+                NSMakeRect(14, 31, w - 28, 24))
+            field.setBezelStyle_(AppKit.NSTextFieldRoundedBezel)
+            field.setPlaceholderString_("AIza…" if b.needs_key else "Say something…")
             field.setTarget_(self)
             field.setAction_("send:")
             field.setDelegate_(self)
             view.addSubview_(field)
-            self.chat.setContentView_(view)
-            self.place(self.chat, *above_pet(self.brain, 300, 82, tail_x=150))
-            app = AppKit.NSApp
-            app.activate() if hasattr(app, "activate") else app.activateIgnoringOtherApps_(True)
-            self.chat.makeKeyAndOrderFront_(None)
-            self.chat.makeFirstResponder_(field)
-        elif not self.brain.chatting and self.chat:
-            self.chat.orderOut_(None)
-            self.chat = None
-            if hasattr(AppKit.NSApp, "deactivate"):
-                AppKit.NSApp.deactivate()  # hand the keyboard back to what you were doing
+            view.addSubview_(hint := label("Enter to send · Esc to close", size=10.5, secondary=True))
+            hint.setFrame_(NSMakeRect(14, 63, 170, 14))
+            button = AppKit.NSButton.buttonWithTitle_target_action_(b.button[0], self, "openLink:")
+            button.setControlSize_(AppKit.NSControlSizeSmall)
+            button.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+            button.sizeToFit()
+            bw = button.frame().size.width
+            button.setFrame_(NSMakeRect(w - 14 - bw, 59, bw, 22))
+            view.addSubview_(button)
+            self.chat_field = field
+            if not self.review:
+                self.focus(self.chat, field)
+        if self.chat:  # it follows the pet around, even while you drag it
+            self.place(self.chat, *beside_pet(b, 300, 88))
+
+    @objc.python_method
+    def sync_review(self):
+        asking = self.brain.asking
+        if self.review and (not asking or asking["id"] != self.review_id):
+            self.review.orderOut_(None)
+            self.review = None
+            if self.chat:
+                self.focus(self.chat, self.chat_field)
+        if asking and not self.review:
+            code = asking["code"]
+            w = 560 if code else 340
+            question = AppKit.NSTextField.wrappingLabelWithString_(asking["question"])
+            question.setFont_(FONT)
+            question.setPreferredMaxLayoutWidth_(w - 32)
+            qh = question.fittingSize().height
+            ch = min(340, 18 + 15 * (code.count("\n") + 1)) if code else 0
+            h = 18 + qh + (12 + ch if code else 0) + 54
+            self.review, view = native_panel(w, h)
+            self.review_id = asking["id"]
+            question.setFrame_(NSMakeRect(16, 16, w - 32, qh))
+            view.addSubview_(question)
+            if code:
+                scroll = AppKit.NSScrollView.alloc().initWithFrame_(NSMakeRect(16, 18 + qh + 10, w - 32, ch))
+                scroll.setHasVerticalScroller_(True)
+                scroll.setHasHorizontalScroller_(True)
+                scroll.setBorderType_(AppKit.NSBezelBorder)
+                text = AppKit.NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, w - 36, ch))
+                text.setHorizontallyResizable_(True)  # long lines scroll sideways instead of wrapping
+                text.textContainer().setWidthTracksTextView_(False)
+                text.textContainer().setContainerSize_((10_000, 10_000_000))
+                text.setEditable_(False)
+                text.setFont_(CODE)
+                text.setString_(code)
+                scroll.setDocumentView_(text)
+                view.addSubview_(scroll)
+            no = AppKit.NSButton.buttonWithTitle_target_action_("No", self, "answerNo:")
+            no.setKeyEquivalent_("\x1b")  # Esc means no. Yes needs a click, so nothing gets approved by accident
+            yes = AppKit.NSButton.buttonWithTitle_target_action_("Yes, install it" if code else "Yes", self, "answerYes:")
+            right = w - 16
+            for button in (yes, no):  # right to left: Yes, then No
+                button.sizeToFit()
+                bw = button.frame().size.width + 16
+                button.setFrame_(NSMakeRect(right - bw, h - 44, bw, 30))
+                view.addSubview_(button)
+                right -= bw + 8
+            self.place(self.review, *review_spot(self.brain, w, h))
+            self.focus(self.review, no)
+
+    def answerYes_(self, button):
+        self.brain.answer(True)
+
+    def answerNo_(self, button):
+        self.brain.answer(False)
 
     def send_(self, field):
         self.brain.heard(field.stringValue())
+        field.setStringValue_("")
 
     @objc.typedSelector(b"Z@:@@:")
     def control_textView_doCommandBySelector_(self, control, view, command):
@@ -218,12 +314,18 @@ class MacPet(NSObject):
     def openChat_(self, item):
         self.brain.chatting = True
 
+    def openLink_(self, button):  # "Get a free key" or "Customize me"
+        webbrowser.open(self.brain.button_clicked())
+
+    def customize_(self, item):
+        webbrowser.open(self.brain.button_clicked(customize=True))
+
     def toggleWander_(self, item):
         self.brain.toggle_wander()
         item.setTitle_("Stay here" if self.brain.wander else "Walk around")
 
     def goToSleep_(self, item):
-        self.brain.done = True
+        self.brain.quit()
 
 def run(me, follow):
     app = AppKit.NSApplication.sharedApplication()

@@ -1,23 +1,22 @@
 """Gemlin's desktop pet: a little creature that walks along the bottom of your screen.
 
-gemlin.py starts it for you (or run `python pet.py` to just watch it walk). It builds
-its sprites from the art in site/art, recolored with your gemlin.json. Make your look
-at https://gemlin.dev/create, then run the `python gemlin.py --look ...` command it gives you.
+`gemlin start` opens it for you (or run `python -m gemlin.pet` to just watch it walk).
+It builds its sprites from the art in gemlin/art, recolored with your look. Make your
+look at https://gemlin.dev/create, then run the `gemlin look ...` command it gives you.
 
 This file decides what the pet does (the Brain). The windows are drawn by pet_mac.py
 on a Mac and pet_tk.py on Windows and Linux.
 
-gemlin.py and the pet talk with one JSON message per line:
-  to the pet (stdin):    {"do": "think" | "tool" | "ask" | "idle" | "say" | "oops" | "bye", ...}
-  from the pet (stdout): {"say": "something you typed into the pet's chat box"}
+core.py and the pet talk with one JSON message per line:
+  to the pet (stdin):    {"do": "think" | "tool" | "ask" | "answered" | "idle" | "say" | "oops" | "bye"
+                          | "need_key" | "key_ok" | "look", ...}
+  from the pet (stdout): {"say": "something you typed"}, {"answer": 1, "yes": true} or {"quit": true}
 """
 # ruff: noqa: E401
 import base64, functools, json, queue, random, re, struct, sys, threading, zlib
 from contextlib import suppress
-from pathlib import Path
 
-HERE = Path(__file__).parent
-ART, SETTINGS = HERE / "site" / "art", HERE / "gemlin.json"
+from .paths import ART, LOOK as SETTINGS
 DEFAULTS = {
     "name": "Gemlin",
     "personality": "a cheeky little creature who lives inside this laptop. You love tidy disks "
@@ -68,6 +67,7 @@ def save_look(code):
     if not isinstance(raw, dict):
         raise ValueError("not a look code")
     me = clean(raw)
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS.write_text(json.dumps(me, indent=2) + "\n", encoding="utf-8")
     return me
 
@@ -167,7 +167,7 @@ class Sprites:
         return self.frames[key]
 
 def write_manifest():
-    """List the art for the creator site, which can't look inside folders: python pet.py --manifest"""
+    """List the art for the website, which can't look inside folders: python -m gemlin.pet --manifest"""
     art = {slot: {name: sorted(p.stem for p in (ART / slot / name).glob("*.png")) for name in options(slot)}
            for slot in FIRST_FRAME}
     (ART / "manifest.json").write_text(json.dumps(art, indent=1) + "\n", encoding="utf-8")
@@ -201,6 +201,19 @@ def above_pet(brain, w, h, tail_x=40):
     x = min(max(0, int(brain.x + SIZE / 2 - tail_x)), brain.screen_w - w)
     return x, int(brain.y + HOP + brain.art.top * SCALE - h + 2)
 
+def beside_pet(brain, w, h):
+    """Top-left corner for the chat box: next to the pet, on whichever side has room."""
+    x = brain.x + SIZE - 8 if brain.x + SIZE - 8 + w <= brain.screen_w else brain.x - w + 8
+    return int(max(0, x)), int(brain.y + HOP + SIZE - h - 10)
+
+def review_spot(brain, w, h):
+    """Top-left corner for a yes/no question: middle of the screen when there's code to read."""
+    if brain.asking and brain.asking.get("code"):
+        return int((brain.screen_w - w) / 2), int(max(20, (brain.floor - h) / 2))
+    return above_pet(brain, w, h, tail_x=w // 2)
+
+CREATOR = "https://gemlin.dev/create/"
+
 class Brain:
     """Decides where the pet walks, what it says and which frame shows. The window code
     (pet_mac.py or pet_tk.py) calls step() 25 times a second, then draws:
@@ -208,6 +221,10 @@ class Brain:
       x, y:        where the pet's window goes (top-left, screen pixels)
       bubble:      (text, footer) for the speech bubble, or None
       chatting:    whether the chat box should be open
+      asking:      {"id", "question", "code"} while a yes/no question waits, else None
+      needs_key:   the chat box is for pasting an API key (hidden text, "Get a free key" button)
+      button:      (label, url) for the button under the chat box
+      look_version: goes up when the look changes, so windows rebuild their sprites
       done:        time to close"""
 
     def __init__(self, me, screen_w, floor, follow):
@@ -217,11 +234,13 @@ class Brain:
         self.target, self.rest, self.left, self.wander = None, 50, False, True
         self.tick, self.blink_at, self.talk_until, self.hide_at, self.quit_at = 0, 60, 0, None, None
         self.mode, self.status, self.pages, self.page_count, self.seconds = "wander", None, [], 0, None
-        self.grab, self.chatting, self.done, self.leaving = None, False, False, False
+        self.grab, self.done, self.leaving, self.asking = None, False, False, None
+        self.needs_key, self.button, self.look_version = False, ("Customize me", CREATOR), 0
+        self.chatting = follow  # with gemlin.py running, the chat box is open from the start
         self.bubble, self.frame, self.lift = None, None, 0
         if follow:
             threading.Thread(target=self.listen, daemon=True).start()
-        self.say(f"Hi, I'm {me['name']}! Click me to chat.", seconds=5)
+        self.say(f"Hi, I'm {me['name']}! " + ("What can I do for you?" if follow else "Click me to chat."), seconds=6)
 
     # --- messages from gemlin.py ---
     def listen(self):  # runs in a thread; the window only changes inside step()
@@ -237,7 +256,13 @@ class Brain:
         elif do == "tool":
             self.set_mode("think", f"using {str(event.get('name', 'a tool')).replace('_', ' ')}...")
         elif do == "ask":
-            self.set_mode("ask", "psst! I need a y or n in the terminal")
+            self.asking = {"id": event.get("id"), "question": str(event.get("question") or "Is that OK?"),
+                           "code": event.get("code") if isinstance(event.get("code"), str) else None}
+            self.set_mode("ask")
+        elif do == "answered":  # answered in the terminal instead
+            if self.asking and self.asking["id"] == event.get("id"):
+                self.asking = None
+                self.set_mode("wander")
         elif do == "idle":
             self.set_mode("wander")
         elif do == "say":
@@ -246,6 +271,14 @@ class Brain:
             self.say("oops! something went wrong. Look in the terminal.", seconds=5)
         elif do == "bye":
             self.sleep()
+        elif do == "need_key":
+            self.needs_key, self.chatting = True, True
+            self.button = ("Get a free key", str(event.get("url") or "https://aistudio.google.com/apikey"))
+        elif do == "key_ok":
+            self.needs_key, self.button = False, ("Customize me", CREATOR)
+        elif do == "look":  # a new look was saved: dress up
+            self.me, self.art = load_settings(), Sprites(load_settings())
+            self.look_version += 1
 
     def set_mode(self, mode, status=None):
         self.mode, self.status, self.pages, self.hide_at = mode, status, [], None
@@ -294,8 +327,7 @@ class Brain:
         if self.mode == "talk":
             self.next_page()
 
-    def heard(self, text):
-        self.chatting = False
+    def heard(self, text):  # the chat box stays open, ready for the next message
         text = text.strip()
         if not text:
             return
@@ -304,6 +336,26 @@ class Brain:
             self.set_mode("think", "...")
         else:
             self.say("I can only chat while gemlin.py is running. Start me with: python gemlin.py")
+
+    def answer(self, yes):
+        if self.asking:
+            print(json.dumps({"answer": self.asking["id"], "yes": bool(yes)}), flush=True)
+            self.asking = None
+            self.set_mode("think", "...")
+
+    def quit(self):  # "Go to sleep": with gemlin.py running, it goes to sleep too
+        if self.follow:
+            print(json.dumps({"quit": True}), flush=True)
+        self.done = True
+
+    def button_clicked(self, customize=False):
+        """The chat box's button (or Customize me… in the menu): returns the page to open."""
+        if customize or not self.needs_key:
+            self.chatting = True
+            self.say("Make me yours: pick my name, personality, hat and colors. When you're done, click "
+                     "Copy and paste the code here in my chat box.", seconds=10)
+            return CREATOR
+        return self.button[1]
 
     def toggle_wander(self):
         self.wander, self.target = not self.wander, None
@@ -317,8 +369,6 @@ class Brain:
             self.done = True
         if self.hide_at and self.tick >= self.hide_at:
             self.next_page()
-        if self.chatting and self.mode == "talk":
-            self.set_mode("wander")
         walking = False
         if self.grab:
             pass  # held by the mouse
@@ -360,12 +410,12 @@ def run(follow):
             stream.reconfigure(encoding="utf-8")  # gemlin.py talks to us in UTF-8, even on Windows
     try:
         if sys.platform == "darwin":
-            import pet_mac as window  # Tk can't make see-through windows on current macOS
+            from . import pet_mac as window  # Tk can't make see-through windows on current macOS
         else:
-            import pet_tk as window
+            from . import pet_tk as window
     except ImportError as e:
         v = "%d.%d" % sys.version_info[:2]
-        fix = {"darwin": "pip install -r requirements.txt", "linux": "sudo apt install python3-tk"}
+        fix = {"darwin": "pip install -e . (in the gemlin folder)", "linux": "sudo apt install python3-tk"}
         sys.exit(f"  (no desktop pet: {e.name} is missing. To add it: "
                  f"{fix.get(sys.platform, f'reinstall Python {v} from python.org with Tcl/Tk')})")
     window.run(load_settings(), follow)

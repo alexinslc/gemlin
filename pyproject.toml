@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gemlin"
+dynamic = ["version"]
+description = "A tiny AI creature that lives on your desktop and teaches itself new tricks."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+  "google-genai~=2.28.0",
+  "psutil~=7.2",
+  "pyobjc-framework-Cocoa~=12.2; sys_platform == 'darwin'",  # the see-through desktop window on Mac
+]
+
+[project.scripts]
+gemlin = "gemlin.cli:main"
+
+[project.urls]
+Homepage = "https://gemlin.dev"
+Source = "https://github.com/alexinslc/gemlin"
+
+[tool.setuptools]
+packages = ["gemlin"]
+
+[tool.setuptools.dynamic]
+version = { attr = "gemlin.__version__" }
+
+[tool.setuptools.package-data]
+gemlin = ["art/**/*", "skills/*.py"]
