@@ -10,9 +10,8 @@ Built for the **Gemlin** workshop at Hacktoberfest Hack Day Draper x AMH (Oct 16
 
 You need **Python 3.10+** and a Google account.
 
-1. **Get a free API key** at https://aistudio.google.com/apikey.
-2. **Download Gemlin**: `git clone https://github.com/alexinslc/gemlin`, or use *Code → Download ZIP* and unzip it. Then `cd gemlin`.
-3. **Install it** in a virtual environment (Homebrew Python refuses a plain `pip install`):
+1. **Download Gemlin**: `git clone https://github.com/alexinslc/gemlin`, or use *Code → Download ZIP* and unzip it. Then `cd gemlin`.
+2. **Install it** in a virtual environment (Homebrew Python refuses a plain `pip install`):
    ```bash
    # Mac / Linux
    python3 -m venv .venv
@@ -26,15 +25,12 @@ You need **Python 3.10+** and a Google account.
    pip install -e .
    ```
    Open a new terminal later? Run the `activate` line again in the gemlin folder first. (Prefer `gemlin` everywhere? `pipx install -e .` or `uv tool install -e .` also work.)
-4. **Set it up**: checks everything and saves your key (it stays hidden as you paste it):
-   ```bash
-   gemlin setup
-   ```
-5. **Wake it up:**
+3. **Wake it up:**
    ```bash
    gemlin start
    ```
-   Gemlin appears on your desktop with its chat window open. Say hi!
+   Gemlin appears on your desktop with its chat window open. The first time, it walks you through getting a free Gemini API key (from https://aistudio.google.com/apikey) right in its window: click **Get a free key**, then paste the key into its chat box. The box hides what you paste. Prefer the terminal? `gemlin setup` does the same.
+4. **Make it yours**: click **Customize me** under its chat box (or go to [gemlin.dev/create](https://gemlin.dev/create/)), pick a name, personality, hat and colors, click Copy, and paste the code into Gemlin's chat window.
 
 ## The `gemlin` command
 
@@ -48,19 +44,21 @@ You need **Python 3.10+** and a Google account.
 | `gemlin look CODE` | Uses the look you made at gemlin.dev/create (restarts Gemlin if it's awake) |
 | `gemlin chat` | Chat in the terminal instead (the desktop pet opens too; `--no-pet` for just the terminal) |
 | `gemlin logs` | What Gemlin has been doing (`-f` to keep watching) |
-| `gemlin skills` | Lists its skills. `gemlin skills new NAME` starts one of your own |
+| `gemlin skills` | Lists its skills. `gemlin skills new NAME` starts one; `gemlin skills add FILE` adds one someone shared |
+| `gemlin develop IDEA` | Builds a new skill with Gemma's help: try it, change it, save it (see [Extending Gemlin](#extending-gemlin)) |
 
 ## Make your own Gemlin
 
-1. Open **[gemlin.dev/create](https://gemlin.dev/create/)**.
+1. Click **Customize me** under Gemlin's chat box, or open **[gemlin.dev/create](https://gemlin.dev/create/)**.
 2. Pick a name, a personality, a hat and colors. Your Gemlin walks around a pretend desktop so you can see it.
-3. Copy the command at the bottom (`gemlin look eyJuYW1l...`) and run it.
+3. Click **Copy** and paste it into Gemlin's chat window. It changes right away. (Gemlin not running? Paste it into a terminal instead: it's a `gemlin look ...` command.)
 
-Run a new command any time to change your look. Your Gemlin's name and personality win over `NAME` and `PERSONA` at the top of `gemlin/core.py`; delete `~/.gemlin/look.json` to go back.
+Do it again any time to change your look. Your Gemlin's name and personality win over `NAME` and `PERSONA` at the top of `gemlin/core.py`; delete `~/.gemlin/look.json` to go back.
 
 ## The desktop pet
 
 - It **walks** back and forth along the bottom of your screen, sideways, and turns to face you when it talks.
+- **Its chat window looks like part of your computer**: a translucent popover that follows light and dark mode on a Mac, and your light/dark theme and accent color on Windows. Type `/help` there for shortcuts like `/develop` and `/skills`.
 - **Its chat window opens when it wakes up.** Type, press Enter, and the answer appears in a speech bubble. The window stays open for your next message; Esc closes it and clicking Gemlin brings it back.
 - **Long replies come in pages**: click the bubble for the next one.
 - **Drag it** to move it; let go and it drops back down.
@@ -91,9 +89,28 @@ A skill is a small Python file with one function. The function's name matches th
 - **Your skills** live in `~/.gemlin/skills/`. Gemlin saves skills it writes there (with `learn_skill`, after you say yes), and you can write your own: `gemlin skills new wifi_name` starts one from a template. Because a skill there might have come from anywhere (a friend, the internet, Gemlin itself), any skill that is **new or changed since you last approved it** shows you its code and asks before it loads.
 - Changed a skill? `gemlin restart` picks it up.
 
+## Extending Gemlin
+
+You can teach Gemlin new skills without writing much code yourself: **Gemma writes them, you stay in charge.**
+
+```bash
+gemlin develop a skill that finds screenshots on my Desktop older than a week
+```
+
+Gemma writes the skill. Gemlin checks it against the skill rules and warns you about anything that would delete, write, use the internet or run other programs. Then you choose:
+
+- **[t] try it**: runs it (after you've read it) and shows what it returns.
+- **[c] change it**: say what to change in plain words, or press Enter to fix whatever went wrong.
+- **[s] save it**: saves it to `~/.gemlin/skills` and offers to restart Gemlin so it can use it.
+
+`gemlin develop --edit NAME` improves one of your skills. In the chat window, `/develop IDEA` does the quick version: Gemlin writes the skill and shows it to you in its Yes/No window.
+
+**Examples:** [`examples/`](examples/) has three finished skills to read and try (`gemlin skills add examples/old_screenshots.py`) and a list of ideas to build.
+
 ## How it works
 
 - **`gemlin/core.py`** is the creature: its name, personality and model at the top, its core senses (`scan_downloads`, `find_big_files`, `top_processes`, `disk_space`), its one action (`quarantine_file`), and `learn_skill`. The SDK's **automatic function calling** does the plumbing: you pass Python functions as `tools=[...]`, and the SDK runs them when the model asks and sends the results back.
+- **`gemlin/develop.py`** is the skill workbench behind `gemlin develop` and `/develop`, and the skill rules and checks every new skill has to pass.
 - **`gemlin/cli.py`** is the `gemlin` command. `gemlin start` runs Gemlin in the background; the desktop pet is its only window.
 - **`gemlin/pet.py`** builds the pet's sprites from the layered art in `gemlin/art/`, recolored with your look, and decides what the pet does. `pet_mac.py` draws it on a Mac (Cocoa) and `pet_tk.py` on Windows and Linux (tkinter). Gemlin and the pet talk over a pipe, one JSON line per message.
 - **`gemlin/paths.py`** says where things live. Everything that's yours is in `~/.gemlin/`: your key (`config.json`), your look, your skills and approvals, and the log.
@@ -119,7 +136,7 @@ Key dependencies: the official [`google-genai`](https://googleapis.github.io/pyt
 - **`gemlin: command not found`**: activate the virtual environment first (`source .venv/bin/activate`, or `.venv\Scripts\activate` on Windows), in the gemlin folder.
 - **"rate limited"**: wait about 30 seconds, or switch `MODEL` to `gemma-4-31b-it`. Each skill Gemlin uses counts as an extra request.
 - **"Missing or invalid API key"**: run `gemlin setup` again.
-- **Gemlin didn't appear**: `gemlin logs` shows why. `gemlin setup` checks for the desktop window pieces: on a Mac, `pip install -e .` installs them; on Linux, `sudo apt install python3-tk`.
+- **Gemlin didn't appear**: `gemlin logs` shows why. `gemlin status` says whether it's awake. `gemlin setup` checks for the desktop window pieces: on a Mac, `pip install -e .` installs them; on Linux, `sudo apt install python3-tk`.
 - **API error 400 mentioning thinking**: comment out the `thinking_config=` line in `new_chat()` in `gemlin/core.py`.
 - **The pet has a square background on Linux**: Tk can't make see-through windows there. Mac and Windows get a see-through pet.
 - **macOS asks for "access to files in your Documents/Desktop/Downloads folder"**: that's Gemlin looking at file sizes and dates. Click Allow, or Don't Allow and it will skip those folders.
@@ -148,7 +165,8 @@ If you add or change art in `gemlin/art/`, run `python -m gemlin.pet --manifest`
 ## Hack ideas
 
 - Give your Gemlin a new name and personality at [gemlin.dev/create](https://gemlin.dev/create/) (a dragon that hoards GPU memory? an anxious librarian?).
-- Write a skill: `gemlin skills new wifi_name`, fill it in, `gemlin restart`, and ask Gemlin about it.
+- Build a skill with Gemma: `gemlin develop` and an idea from [`examples/README.md`](examples/README.md).
+- Write a skill by hand: `gemlin skills new wifi_name`, fill it in, `gemlin restart`, and ask Gemlin about it.
 - Ask Gemlin to write a skill for you, then read it carefully before saying Yes.
 - Draw a new hat: add a folder to `gemlin/art/hat/` with `still.png` and `side_still.png` (64 × 64, the art's key colors), then run `python -m gemlin.pet --manifest`.
 

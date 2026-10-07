@@ -7,12 +7,19 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from gemlin import core, paths  # noqa: E402
+from gemlin import core, develop, paths  # noqa: E402
 
 BUILTINS = sorted(paths.BUILTIN_SKILLS.glob("*.py"))
+EXAMPLES = sorted((Path(__file__).parent.parent / "examples").glob("*.py"))
 
 
-@pytest.mark.parametrize("path", BUILTINS, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", BUILTINS + EXAMPLES, ids=lambda p: p.stem)
+def test_builtin_and_example_skills_pass_gemlins_own_checks(path):
+    name, problems, _ = develop.check(path.read_text(encoding="utf-8"))
+    assert name == path.stem and problems == []
+
+
+@pytest.mark.parametrize("path", BUILTINS + EXAMPLES, ids=lambda p: p.stem)
 def test_builtin_skill_runs_and_returns_something_small(path, monkeypatch):
     monkeypatch.setattr(core, "TOOLS", [])
     fn = core.load_skill(path.stem, path.read_text(encoding="utf-8"), str(path))

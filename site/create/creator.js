@@ -106,7 +106,7 @@ function setup() {
   $("copy").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText($("command").textContent);
-      $("copied").textContent = "Copied. Paste it into your terminal and press Enter.";
+      $("copied").textContent = "Copied! Paste it into Gemlin's chat window and press Enter.";
     } catch {
       getSelection().selectAllChildren($("command"));
       $("copied").textContent = "Selected. Press Ctrl+C (or ⌘C) to copy.";

@@ -74,6 +74,8 @@ section { padding-block: 64px 8px; display: grid; gap: 28px; }
 .terminal .you { color: var(--ink); }
 .terminal .you::before { content: "you> "; color: var(--mint); }
 .terminal .tool { color: #8592a6; }
+.terminal .cmd { color: var(--ink); }
+.terminal .cmd::before { content: "$ "; color: var(--mint); }
 .terminal .gem { color: var(--paper); }
 .terminal .gem::before { content: "Gemlin> "; color: var(--lilac); }
 .terminal .ask { color: #f1c27d; }
@@ -177,7 +179,6 @@ footer a { color: var(--muted); }
     </div>
     <p class="muted">You need Python 3.10 or newer and a Google account. It takes about five minutes.</p>
     <ol class="steps">
-      <li><div class="body"><h3>Get a free API key</h3><p class="muted">At <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>. Keep it to yourself; never paste it into code.</p></div></li>
       <li><div class="body"><h3>Download Gemlin</h3>
         <div class="code">git clone https://github.com/alexinslc/gemlin
 cd gemlin<button type="button">Copy</button></div>
@@ -190,13 +191,28 @@ pip install -e .<button type="button">Copy</button></div>
 .venv\Scripts\activate
 pip install -e .<button type="button">Copy</button></div>
         <p class="muted">That gives you the <code>gemlin</code> command. In a new terminal later, run the activate line again first.</p></div></li>
-      <li><div class="body"><h3>Set it up</h3>
-        <div class="code">gemlin setup<button type="button">Copy</button></div>
-        <p class="muted">It checks everything and asks for your key (it stays hidden as you paste it).</p></div></li>
       <li><div class="body"><h3>Wake it up</h3>
         <div class="code">gemlin start<button type="button">Copy</button></div>
-        <p class="muted">Gemlin appears on your desktop with its chat window open. Say hi! Later: <code>gemlin stop</code>, <code>gemlin restart</code>, <code>gemlin status</code>. <a href="/create/">Make your own Gemlin</a> any time: the creator gives you one <code>gemlin look</code> command.</p></div></li>
+        <p class="muted">Gemlin appears on your desktop with its chat window open. The first time, it helps you get a free Google API key right there in its window. Then click <b>Customize me</b> to <a href="/create/">make it yours</a>.</p></div></li>
     </ol>
+  </section>
+
+  <section id="extend" aria-labelledby="extend-title">
+    <div class="split">
+      <div>
+        <p class="eyebrow">Make it do more</p>
+        <h2 id="extend-title">Teach it new tricks, with Gemma's help</h2>
+        <p class="muted">Every skill is one small Python file. Describe the one you want and Gemma writes it. Gemlin checks it against the rules, you try it, ask for changes in plain words, and save it.</p>
+        <p class="muted">In a hurry? Type <code>/develop</code> and your idea in Gemlin's chat window. There are <a href="https://github.com/alexinslc/gemlin/tree/main/examples">finished examples</a> to read and try, too.</p>
+      </div>
+      <div class="terminal" aria-label="Example of gemlin develop">
+        <p class="cmd">gemlin develop a skill that finds old screenshots</p>
+        <p class="tool">  Gemma is writing it...</p>
+        <p class="gem">  ✓ follows the skill rules (old_screenshots)</p>
+        <p class="tool">  [t] try it   [c] change it   [s] save it</p>
+        <p class="gem">  ✓ It returned: {"count": 38, "total_mb": 412.6}</p>
+      </div>
+    </div>
   </section>
 
   <section id="workshop" aria-labelledby="workshop-title">

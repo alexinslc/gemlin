@@ -18,6 +18,7 @@ def home(tmp_path, monkeypatch):
     for name in ("HOME", "CONFIG", "LOOK", "SKILLS", "TRUSTED", "LOG", "PID"):  # ~/.gemlin -> a temp folder
         monkeypatch.setattr(paths, name, tmp_path / ".gemlin" / getattr(paths, name).name)
     monkeypatch.setattr(gemlin.pet, "SETTINGS", paths.LOOK)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")  # tests that need no key remove it
     monkeypatch.setattr(gemlin, "TOOLS", list(gemlin.TOOLS))
     monkeypatch.setattr(gemlin, "inbox", gemlin.queue.Queue())
     return tmp_path
@@ -84,7 +85,7 @@ def test_load_skill_needs_matching_function_name():
 
 def test_learn_skill_saves_and_trusts_approved_code(home, monkeypatch):
     answer(monkeypatch, "y")
-    code = 'def hello() -> str:\n    """Say hi."""\n    return "hi"\n'
+    code = 'def hello() -> str:\n    """Say hi. Use this when the user says hello."""\n    return "hi"\n'
     assert gemlin.learn_skill("hello", "says hi", code).startswith("Installed")
     saved = (home / "skills" / "hello.py").read_text(encoding="utf-8")
     assert gemlin.fingerprint(saved) in gemlin.TRUSTED.read_text().split()
@@ -194,10 +195,21 @@ def test_environment_key_wins_over_the_saved_one(home, monkeypatch):
     assert paths.api_key() == "env-key"
 
 
-def test_start_needs_a_key(home, monkeypatch, capsys):
+def test_start_without_a_key_wakes_up_to_coach_you(home, monkeypatch, capsys):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    assert cli.main(["start"]) == 1
-    assert "gemlin setup" in capsys.readouterr().out
+
+    class FakeGemlin:
+        pid = 4242
+
+        def poll(self):
+            return None  # still running
+
+    launched = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: launched.append(cmd) or FakeGemlin())
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    assert cli.main(["start"]) == 0
+    assert launched[0][-2:] == ["run", "--background"]
+    assert "walk you" in capsys.readouterr().out
 
 
 def test_stop_and_status_when_asleep(home, capsys):
@@ -254,3 +266,49 @@ def test_chat_ends_when_the_terminal_closed_and_then_the_pet_goes(home, monkeypa
     gemlin.inbox.put(("gone", None))  # ...then the pet crashes: nothing left, so Gemlin stops
     gemlin.main(desktop=False)
     assert "goes back to sleep" in capsys.readouterr().out
+
+
+def test_no_key_yet_gemlin_coaches_you_in_its_window(home, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    sent = []
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: sent.append(event))
+    monkeypatch.setattr(gemlin, "pet_alive", lambda: True)
+    monkeypatch.setattr(gemlin, "check_key", lambda key: None if key.startswith("AIza") else "error 400")
+    good = "AIza" + "x" * 35
+    for typed in ("help?", "zzzz-not-a-real-key-zzzzzzzzzzzz", good):
+        gemlin.inbox.put(("pet", typed))
+    assert gemlin.get_key() == good
+    assert paths.api_key() == good
+    says = [e["text"] for e in sent if e.get("do") == "say"]
+    assert "Get a free key" in says[0] and "doesn't look like a key" in says[1] and "doesn't work" in says[2]
+    assert sent[0]["do"] == "need_key" and {"do": "key_ok"} in sent
+
+
+def test_going_to_sleep_while_waiting_for_a_key(home, monkeypatch):
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    monkeypatch.setattr(gemlin, "pet_alive", lambda: True)
+    gemlin.inbox.put(("pet", "quit"))
+    assert gemlin.get_key() is None
+
+
+def test_slash_commands():
+    assert "/develop" in gemlin.slash_command("/help")[0]
+    assert "skills" in gemlin.slash_command("/skills")[0]
+    reply, prompt = gemlin.slash_command("/develop a skill that counts my photos")
+    assert reply is None and "counts my photos" in prompt and "learn_skill" in prompt
+    assert gemlin.slash_command("hello there") is None
+
+
+def test_pasting_a_look_into_the_chat(home):
+    code = gemlin.pet.base64.urlsafe_b64encode(b'{"name": "Pip", "parts": {"hat": "bow"}}').decode().rstrip("=")
+    assert gemlin.new_look(code)["name"] == "Pip"
+    assert gemlin.new_look(f"gemlin look {code}")["parts"]["hat"] == "bow"
+    assert gemlin.new_look("what's eating my disk?") is None
+    assert gemlin.new_look("x" * 60) is None  # long, but not a look code
+
+
+def test_learn_skill_sends_rule_breaking_code_back_to_the_model(home, monkeypatch):
+    answer(monkeypatch, "y")  # would say yes, but should never be asked
+    result = gemlin.learn_skill("bad", "x", "import requests\n\ndef bad():\n    return 1\n")
+    assert result.startswith("Refused, fix these") and "docstring" in result
+    assert not gemlin.inbox.empty()  # the y is still waiting: nobody was asked

@@ -8,7 +8,8 @@ This file decides what the pet does (the Brain). The windows are drawn by pet_ma
 on a Mac and pet_tk.py on Windows and Linux.
 
 core.py and the pet talk with one JSON message per line:
-  to the pet (stdin):    {"do": "think" | "tool" | "ask" | "answered" | "idle" | "say" | "oops" | "bye", ...}
+  to the pet (stdin):    {"do": "think" | "tool" | "ask" | "answered" | "idle" | "say" | "oops" | "bye"
+                          | "need_key" | "key_ok" | "look", ...}
   from the pet (stdout): {"say": "something you typed"}, {"answer": 1, "yes": true} or {"quit": true}
 """
 # ruff: noqa: E401
@@ -211,6 +212,8 @@ def review_spot(brain, w, h):
         return int((brain.screen_w - w) / 2), int(max(20, (brain.floor - h) / 2))
     return above_pet(brain, w, h, tail_x=w // 2)
 
+CREATOR = "https://gemlin.dev/create/"
+
 class Brain:
     """Decides where the pet walks, what it says and which frame shows. The window code
     (pet_mac.py or pet_tk.py) calls step() 25 times a second, then draws:
@@ -219,6 +222,9 @@ class Brain:
       bubble:      (text, footer) for the speech bubble, or None
       chatting:    whether the chat box should be open
       asking:      {"id", "question", "code"} while a yes/no question waits, else None
+      needs_key:   the chat box is for pasting an API key (hidden text, "Get a free key" button)
+      button:      (label, url) for the button under the chat box
+      look_version: goes up when the look changes, so windows rebuild their sprites
       done:        time to close"""
 
     def __init__(self, me, screen_w, floor, follow):
@@ -229,6 +235,7 @@ class Brain:
         self.tick, self.blink_at, self.talk_until, self.hide_at, self.quit_at = 0, 60, 0, None, None
         self.mode, self.status, self.pages, self.page_count, self.seconds = "wander", None, [], 0, None
         self.grab, self.done, self.leaving, self.asking = None, False, False, None
+        self.needs_key, self.button, self.look_version = False, ("Customize me", CREATOR), 0
         self.chatting = follow  # with gemlin.py running, the chat box is open from the start
         self.bubble, self.frame, self.lift = None, None, 0
         if follow:
@@ -264,6 +271,14 @@ class Brain:
             self.say("oops! something went wrong. Look in the terminal.", seconds=5)
         elif do == "bye":
             self.sleep()
+        elif do == "need_key":
+            self.needs_key, self.chatting = True, True
+            self.button = ("Get a free key", str(event.get("url") or "https://aistudio.google.com/apikey"))
+        elif do == "key_ok":
+            self.needs_key, self.button = False, ("Customize me", CREATOR)
+        elif do == "look":  # a new look was saved: dress up
+            self.me, self.art = load_settings(), Sprites(load_settings())
+            self.look_version += 1
 
     def set_mode(self, mode, status=None):
         self.mode, self.status, self.pages, self.hide_at = mode, status, [], None
@@ -332,6 +347,15 @@ class Brain:
         if self.follow:
             print(json.dumps({"quit": True}), flush=True)
         self.done = True
+
+    def button_clicked(self, customize=False):
+        """The chat box's button (or Customize me… in the menu): returns the page to open."""
+        if customize or not self.needs_key:
+            self.chatting = True
+            self.say("Make me yours: pick my name, personality, hat and colors. When you're done, click "
+                     "Copy and paste the code here in my chat box.", seconds=10)
+            return CREATOR
+        return self.button[1]
 
     def toggle_wander(self):
         self.wander, self.target = not self.wander, None

@@ -9,6 +9,8 @@
   gemlin chat             chat in this terminal instead (with the desktop pet too, unless --no-pet)
   gemlin logs             what Gemlin has been doing
   gemlin skills           list its skills;  gemlin skills new NAME  starts one of your own
+                          gemlin skills add FILE  adds a skill someone shared (it asks before loading)
+  gemlin develop IDEA     build a new skill with Gemma's help: try it, change it, save it
 """
 import argparse
 import ast
@@ -114,29 +116,12 @@ def ask_key():
 
 
 def check_key(key):
-    """None if the key works, "offline" if we couldn't tell, otherwise what went wrong."""
-    from google import genai
-    from google.genai import errors
-
-    from .core import MODEL
-    try:
-        genai.Client(api_key=key).models.get(model=MODEL)
-    except errors.APIError as e:
-        return f"error {e.code}"
-    except Exception:
-        return "offline"
-    return None
+    from .core import check_key
+    return check_key(key)
 
 
 def save_key(key):
-    paths.HOME.mkdir(parents=True, exist_ok=True)
-    config = {}
-    with suppress(OSError, ValueError):
-        config = json.loads(paths.CONFIG.read_text(encoding="utf-8"))
-    config["api_key"] = key
-    paths.CONFIG.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    with suppress(OSError):
-        os.chmod(paths.CONFIG, 0o600)  # only you can read it
+    paths.save_api_key(key)
 
 
 # ---------- start / stop ----------
@@ -145,9 +130,7 @@ def start(args):
     if proc := running():
         print(f"{name()} is already awake (gemlin restart to restart it).")
         return 0
-    if not paths.api_key():
-        print("Gemlin needs an API key first. Run:  gemlin setup")
-        return 1
+    no_key = not paths.api_key()
     paths.HOME.mkdir(parents=True, exist_ok=True)
     log = paths.LOG.open("a", encoding="utf-8")
     log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} gemlin start =====\n")
@@ -165,8 +148,12 @@ def start(args):
         print(f"{name()} couldn't wake up. The end of the log says:\n")
         print("\n".join(paths.LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-8:]))
         return 1
-    print(f"{name()} is waking up on your desktop. Say hi in its chat window!\n"
-          f"  gemlin stop puts it to sleep · gemlin logs shows what it's doing")
+    if no_key:
+        print(f"{name()} is waking up on your desktop. It needs a free API key first, and will walk you\n"
+              f"  through getting one in its window. (Or run gemlin setup.)")
+    else:
+        print(f"{name()} is waking up on your desktop. Say hi in its chat window!")
+    print("  gemlin stop puts it to sleep · gemlin logs shows what it's doing")
     return 0
 
 
@@ -278,6 +265,8 @@ def describe(path):
 def skills(args):
     if args.action == "new":
         return new_skill(args.name)
+    if args.action == "add":
+        return add_skill(args.name)
     from .core import fingerprint
     trusted = set(paths.TRUSTED.read_text(encoding="utf-8").split()) if paths.TRUSTED.exists() else set()
     print("Built in (come with Gemlin):")
@@ -301,6 +290,46 @@ def {name}() -> dict:
     so be specific: "Use this when the user asks about ..." """
     return {{"hello": "world"}}
 '''
+
+
+def add_skill(file):
+    import shutil
+    from pathlib import Path
+    source = Path(file or "").expanduser()
+    if not source.is_file() or source.suffix != ".py":
+        print("Give it a skill file, like:  gemlin skills add examples/old_screenshots.py")
+        return 1
+    if (paths.BUILTIN_SKILLS / source.name).exists() or (paths.SKILLS / source.name).exists():
+        print(f"There's already a skill called {source.stem}.")
+        return 1
+    paths.SKILLS.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source, paths.SKILLS / source.name)
+    print(f"Added {source.stem}. Run gemlin restart: Gemlin will show you its code and ask before loading it.")
+    return 0
+
+
+def develop(args):
+    key = paths.api_key()
+    if not key:
+        print("Gemma needs your API key to write skills. Run:  gemlin setup")
+        return 1
+    from google import genai
+
+    from . import develop as workbench
+    client = genai.Client(api_key=key)
+    if args.edit:
+        path = paths.SKILLS / f"{args.edit}.py"
+        if not path.exists():
+            print(f"You don't have a skill called {args.edit} in {paths.SKILLS}.")
+            return 1
+        result = workbench.session(client, code=path.read_text(encoding="utf-8"))
+    else:
+        result = workbench.session(client, request=" ".join(args.idea) or None)
+    if result == 0 and running() and ask_yes(f"Restart {name()} so it can use the new skill?"):
+        restart(args)
+    elif result == 0:
+        print("  Gemlin will use it next time you run gemlin start.")
+    return result
 
 
 def new_skill(skill):
@@ -342,17 +371,21 @@ def main(argv=None):
     p.add_argument("-n", "--lines", type=int, default=40)
     p.add_argument("-f", "--follow", action="store_true", help="keep showing new lines")
     p.set_defaults(fn=logs)
-    p = commands.add_parser("skills", help="list skills, or start a new one: gemlin skills new NAME")
-    p.add_argument("action", nargs="?", choices=["new"])
+    p = commands.add_parser("skills", help="list skills; gemlin skills new NAME; gemlin skills add FILE")
+    p.add_argument("action", nargs="?", choices=["new", "add"])
     p.add_argument("name", nargs="?")
     p.set_defaults(fn=skills)
+    p = commands.add_parser("develop", help="build a new skill with Gemma's help")
+    p.add_argument("idea", nargs="*", help="what the skill should do (or leave it out and Gemlin asks)")
+    p.add_argument("--edit", metavar="NAME", help="improve one of your skills instead")
+    p.set_defaults(fn=develop)
     p = commands.add_parser("run")  # used by `gemlin start`; not shown in help
     p.add_argument("--background", action="store_true")
     p.set_defaults(fn=run)
     args = parser.parse_args(argv)
     if not args.command:
         status(args)
-        print("\nCommands: setup, start, stop, restart, status, look, chat, logs, skills  (gemlin --help)")
+        print("\nCommands: setup, start, stop, restart, status, look, chat, logs, skills, develop  (gemlin --help)")
         return 0
     return args.fn(args) or 0
 

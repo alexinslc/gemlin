@@ -9,7 +9,7 @@ their file hoarding. Keep replies short."""
 MODEL = "gemma-4-26b-a4b-it"  # rate limited? switch to "gemma-4-31b-it"
 
 # ruff: noqa: E401, E402  (config goes first so it is easy to edit live)
-import functools, hashlib, heapq, json, os, queue, shutil, subprocess, sys, threading, time
+import functools, hashlib, heapq, json, os, queue, re, shutil, subprocess, sys, threading, time
 from contextlib import suppress
 from pathlib import Path
 with suppress(ImportError):
@@ -17,7 +17,7 @@ with suppress(ImportError):
 import psutil
 from google import genai
 from google.genai import errors, types
-from . import paths, pet
+from . import develop, paths, pet
 
 NOTE = """
 (System note: your tools and skills see file names, sizes, dates, processes, disk
@@ -28,8 +28,13 @@ HOME = Path.home()
 BUILTIN, SKILLS, TRUSTED = paths.BUILTIN_SKILLS, paths.SKILLS, paths.TRUSTED  # see paths.py
 REVIEW = HOME / "Gemlin_Review"
 SKIP = {"Library", "AppData", "node_modules", "venv", "__pycache__", "Windows", "Program Files"}
-KEY_HELP = """Missing or invalid API key. Get a free one at https://aistudio.google.com/apikey, then run:
+KEY_PAGE = "https://aistudio.google.com/apikey"
+KEY_HELP = f"""Missing or invalid API key. Get a free one at {KEY_PAGE}, then run:
   gemlin setup"""
+COMMANDS = """Things you can type here:
+  /develop IDEA   I write a new skill for IDEA (you read it and say yes or no)
+  /skills         what I know how to do
+  /help           this list"""
 TOOLS, needs_reload, client, pet_proc = [], False, None, None
 inbox = queue.Queue()  # ("you", line) from the terminal, ("pet", line) from the pet's chat box,
                        # ("answer", (id, yes)) from the pet's yes/no window, ("gone", None) if the pet closed
@@ -239,7 +244,11 @@ def learn_skill(name: str, description: str, code: str) -> str:
     show_code(f"{NAME} wants to learn: {name}", code)
     if not name.isidentifier() or name in [t.__name__ for t in TOOLS]:
         return "Refused: name must be a new, valid Python identifier."
-    if not ask(f"{NAME} wrote a new skill, {name}. Install it? Only say yes if you read and understand the code.", code):
+    _, problems, warnings = develop.check(code, name)
+    if problems:  # send it back to the model to fix before bothering the owner
+        return "Refused, fix these and try again: " + "; ".join(problems)
+    heads_up = (" Heads up: " + "; ".join(warnings) + ".") if warnings else ""
+    if not ask(f"{NAME} wrote a new skill, {name}.{heads_up} Install it? Only say yes if you read and understand the code.", code):
         return "Owner said no. Skill not installed."
     try:
         fn = load_skill(name, code)
@@ -288,6 +297,100 @@ def load_skills():
         except Exception as e:
             print(f"  ⚠️  skipped skill {f.name}: {e}")
 
+def check_key(key):
+    """None if the key works, "offline" if Google couldn't be reached, otherwise what went wrong."""
+    import httpx
+    tester = genai.Client(api_key=key)  # keep hold of it: the SDK closes a client nobody refers to
+    try:
+        tester.models.get(model=MODEL)
+    except errors.APIError as e:
+        return f"error {e.code}"
+    except (httpx.TransportError, OSError):  # no internet, DNS trouble, a timeout
+        return "offline"
+    except Exception as e:
+        return type(e).__name__
+    return None
+
+def looks_like_key(text):  # Gemini keys are one long code with no spaces
+    return 20 <= len(text) <= 200 and text.isprintable() and not any(c.isspace() for c in text)
+
+def get_key():
+    """No API key yet: coach the owner through getting one, in the pet's window (or the terminal)."""
+    if not pet_alive():
+        print(f"{NAME} needs a free Gemini API key before it can think. Get one at {KEY_PAGE}\n"
+              "  (sign in with Google, click Create API key, copy it), then paste it here.")
+        from getpass import getpass
+        while True:
+            try:
+                key = getpass("  API key (hidden): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return None
+            if not key:
+                return None
+            problem = check_key(key)
+            if problem in (None, "offline"):
+                paths.save_api_key(key)
+                print("  Saved. Thank you!")
+                return key
+            print(f"  That key didn't work ({problem}). Try again, or press Enter to stop.")
+    tell_pet(do="need_key", url=KEY_PAGE)
+    tell_pet(do="say", text=f"Hi! I'm {NAME}. Before I can think, I need a free key from Google. It takes "
+             "about a minute. 1. Click “Get a free key” below: Google AI Studio opens. 2. Sign in with your "
+             "Google account and click “Create API key”. 3. Copy the key, paste it in my box, and press Enter.")
+    print(f"{NAME} is waiting for an API key in its window (or run: gemlin setup).")
+    while True:
+        source, text = next_line("pet", "you", "gone")
+        if shutting_down(source, text) or (source == "you" and text is None and not pet_alive()):
+            return None
+        if text is None:
+            continue
+        key = text.strip()
+        if not looks_like_key(key):
+            tell_pet(do="say", text="That doesn't look like a key. It's one long code, usually starting with "
+                     "“AIza”. Click “Get a free key” if you don't have one yet.")
+            continue
+        tell_pet(do="think")
+        problem = check_key(key)
+        if problem in (None, "offline"):
+            paths.save_api_key(key)
+            print("  API key saved (by the pet window).")
+            tell_pet(do="key_ok")
+            tell_pet(do="say", text="Got it, thank you! Now I can think. What can I do for you?"
+                     + (" (I couldn't test the key because Google didn't answer.)" if problem else ""))
+            return key
+        tell_pet(do="say", text=f"Hmm, Google says that key doesn't work ({problem}). Copy it again from "
+                 "AI Studio and paste it here.")
+
+LOOK_CODE = re.compile(r"(?:gemlin\s+look\s+)?([A-Za-z0-9_-]{40,})")
+
+def new_look(msg):
+    """A look code pasted into the chat (with or without `gemlin look`): save it and return the new look."""
+    if match := LOOK_CODE.fullmatch(msg.strip()):
+        with suppress(ValueError):
+            return pet.save_look(match.group(1))
+    return None
+
+def wear(me):  # take on a new name and personality
+    global NAME, PERSONA
+    NAME, PERSONA = me["name"], f"You are {me['name']}, {me['personality']}"
+
+def slash_command(msg):
+    """Handle /help, /skills and /develop. Returns (reply, None), (None, prompt for the model), or None."""
+    word, _, rest = msg.partition(" ")
+    if word == "/help":
+        return COMMANDS, None
+    if word == "/skills":
+        names = sorted(t.__name__ for t in TOOLS)
+        return f"I can use {len(names)} skills: " + ", ".join(names) + ". Teach me more with /develop IDEA.", None
+    if word == "/develop":
+        if not rest.strip():
+            return "Tell me what to build, like: /develop a skill that lists my oldest screenshots", None
+        return None, (f"Please write me a new skill with learn_skill for this: {rest.strip()}. "
+                      f"Follow these rules:\n{develop.RULES}")
+    if word.startswith("/"):
+        return f"I don't know {word}. " + COMMANDS, None
+    return None
+
 def main(desktop=True, background=False):
     """Wake Gemlin up. desktop: open the pet (chat in its window). background: started by
     `gemlin start`, with no terminal attached, so the pet is the only way in."""
@@ -295,20 +398,24 @@ def main(desktop=True, background=False):
     if background:
         sys.stdout.reconfigure(line_buffering=True)  # the log file shows each line right away
     if pet.SETTINGS.exists():  # made at gemlin.dev/create
-        me = pet.load_settings()
-        NAME, PERSONA = me["name"], f"You are {me['name']}, {me['personality']}"
-    try:
-        client = genai.Client(api_key=paths.api_key())
-    except ValueError:
-        sys.exit(KEY_HELP)
+        wear(pet.load_settings())
     terminal_open = not background
     if not background:
         threading.Thread(target=read_terminal, daemon=True).start()
     if desktop:
         start_pet()
+    key = paths.api_key() or get_key()  # no key yet? Gemlin coaches you through getting one
+    if not key:
+        tell_pet(do="bye")
+        sys.exit(KEY_HELP)
+    client = genai.Client(api_key=key)
     load_skills()
     chat = new_chat()
     tell_pet(do="idle")
+    if pet_alive() and not pet.SETTINGS.exists() and not paths.config().get("offered_customize"):
+        tell_pet(do="say", text=f"Hi! I'm {NAME}. Want to make me yours? Click “Customize me” below to pick my "
+                 "name, personality, hat and colors. Then paste the code back here in my chat box.")
+        paths.save_config(offered_customize=True)  # just once
     if background:
         print(f"{NAME} wakes up on your desktop ({MODEL}, {len(TOOLS)} tools). To stop: gemlin stop")
     elif pet_proc:
@@ -337,6 +444,20 @@ def main(desktop=True, background=False):
             msg = msg.strip()
             if msg.lower() in ("quit", "exit"):
                 break
+            if me := new_look(msg):  # pasted from gemlin.dev/create
+                wear(me)
+                chat = new_chat(chat.get_history())  # same conversation, new personality
+                tell_pet(do="look")
+                hello = f"Ta-da! I'm {NAME} now. What can I do for you?"
+                print(f"  (new look saved)\n{NAME}> {hello}")
+                tell_pet(do="say", text=hello)
+                continue
+            if (command := slash_command(msg)) and command[0]:  # answered without the model
+                print(f"{NAME}> {command[0]}")
+                tell_pet(do="say", text=command[0])
+                continue
+            if command:
+                msg = command[1]
             if msg:
                 tell_pet(do="think")
                 reply = chat.send_message(msg)

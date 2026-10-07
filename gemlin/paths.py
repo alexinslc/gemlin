@@ -26,6 +26,22 @@ def api_key():
     """Your Gemini API key: from GEMINI_API_KEY if it's set, otherwise the one `gemlin setup` saved."""
     if os.environ.get("GEMINI_API_KEY"):
         return os.environ["GEMINI_API_KEY"]
-    with suppress(OSError, ValueError, AttributeError):
-        return json.loads(CONFIG.read_text(encoding="utf-8")).get("api_key")
-    return None
+    return config().get("api_key")
+
+
+def config():
+    with suppress(OSError, ValueError):
+        return json.loads(CONFIG.read_text(encoding="utf-8"))
+    return {}
+
+
+def save_config(**values):
+    """Update ~/.gemlin/config.json, which only you can read (it holds your key)."""
+    HOME.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps({**config(), **values}, indent=2) + "\n", encoding="utf-8")
+    with suppress(OSError):
+        os.chmod(CONFIG, 0o600)
+
+
+def save_api_key(key):
+    save_config(api_key=key)
