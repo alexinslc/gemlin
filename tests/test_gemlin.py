@@ -312,3 +312,21 @@ def test_learn_skill_sends_rule_breaking_code_back_to_the_model(home, monkeypatc
     result = gemlin.learn_skill("bad", "x", "import requests\n\ndef bad():\n    return 1\n")
     assert result.startswith("Refused, fix these") and "docstring" in result
     assert not gemlin.inbox.empty()  # the y is still waiting: nobody was asked
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows uses the registry; tested by hand")
+def test_autostart_on_and_off(home, tmp_path, capsys):
+    args = cli.argparse.Namespace(action="on")
+    cli.autostart(args, home=tmp_path)
+    path = cli.autostart_file(tmp_path)
+    assert path.exists()
+    if sys.platform == "darwin":
+        import plistlib
+        job = plistlib.loads(path.read_bytes())
+        assert job["RunAtLoad"] and job["ProgramArguments"][-3:] == ["-m", "gemlin", "start"]
+    else:
+        assert "-m gemlin start" in path.read_text()
+    cli.autostart(cli.argparse.Namespace(action=None), home=tmp_path)
+    assert "on" in capsys.readouterr().out.splitlines()[-1]
+    cli.autostart(cli.argparse.Namespace(action="off"), home=tmp_path)
+    assert not path.exists()

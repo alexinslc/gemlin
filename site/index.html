@@ -97,6 +97,17 @@ ol.steps .body { display: grid; gap: 8px; min-width: 0; }
 .os-switch button[aria-pressed=true] { background: var(--mint); color: var(--mint-ink); font-weight: 650; }
 [data-os-only][hidden] { display: none; }
 
+.tinker { border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; display: grid; gap: 10px; }
+.tinker summary { cursor: pointer; font-weight: 600; }
+.tinker[open] { gap: 12px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+td { padding: 10px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { white-space: nowrap; width: 1%; }
+td code, p code { font: 13.5px var(--mono); color: var(--mint); }
+.skill-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.skill-list span { background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 6px 12px; font-size: 14px; }
 .workshop { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: clamp(20px, 4vw, 36px); display: grid; gap: 14px; }
 .workshop .when { font: 700 20px var(--display); color: var(--lilac); }
 .workshop ul { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
@@ -118,7 +129,8 @@ footer a { color: var(--muted); }
     <a href="/" class="wordmark">gemlin</a>
     <div class="links">
       <a href="#what">What it does</a>
-      <a href="#start">Get started</a>
+      <a href="#start">Install</a>
+      <a href="#extend">Extend</a>
       <a href="#workshop">Workshop</a>
       <a href="https://github.com/alexinslc/gemlin">GitHub</a>
       <a href="/create/" class="button primary">Make your Gemlin</a>
@@ -131,7 +143,7 @@ footer a { color: var(--muted); }
     <p class="lede">Gemlin walks along the bottom of your screen, keeps an eye on your Downloads, and teaches itself new tricks. You approve every one.</p>
     <div class="actions">
       <a class="button primary" href="/create/">Make your Gemlin</a>
-      <a class="button" href="#start">Get started</a>
+      <a class="button" href="#start">Install it</a>
     </div>
     <div class="desktop" id="desktop" aria-label="Gemlins walking across a pretend desktop">
       <div class="window" style="left:6%;top:10%;width:44%;height:44%"><i style="top:40px"></i><i style="top:58px;right:45%"></i><i style="top:76px;right:38%"></i></div>
@@ -171,30 +183,72 @@ footer a { color: var(--muted); }
 
   <section id="start" aria-labelledby="start-title">
     <div style="display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap">
-      <h2 id="start-title">Get started</h2>
+      <h2 id="start-title">Install it</h2>
       <div class="os-switch" role="group" aria-label="Your computer">
         <button type="button" data-os="mac" aria-pressed="true">Mac / Linux</button>
         <button type="button" data-os="windows" aria-pressed="false">Windows</button>
       </div>
     </div>
-    <p class="muted">You need Python 3.10 or newer and a Google account. It takes about five minutes.</p>
+    <p class="muted">All you need is a Google account. Open a terminal, paste one line, and Gemlin takes it from there.</p>
     <ol class="steps">
-      <li><div class="body"><h3>Download Gemlin</h3>
-        <div class="code">git clone https://github.com/alexinslc/gemlin
-cd gemlin<button type="button">Copy</button></div>
-        <p class="muted">No git? Use <a href="https://github.com/alexinslc/gemlin/archive/refs/heads/main.zip">Download ZIP</a>, unzip it, and open a terminal in the folder.</p></div></li>
-      <li><div class="body"><h3>Install it</h3>
-        <div class="code" data-os-only="mac">python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .<button type="button">Copy</button></div>
-        <div class="code" data-os-only="windows" hidden>python -m venv .venv
-.venv\Scripts\activate
-pip install -e .<button type="button">Copy</button></div>
-        <p class="muted">That gives you the <code>gemlin</code> command. In a new terminal later, run the activate line again first.</p></div></li>
-      <li><div class="body"><h3>Wake it up</h3>
-        <div class="code">gemlin start<button type="button">Copy</button></div>
-        <p class="muted">Gemlin appears on your desktop with its chat window open. The first time, it helps you get a free Google API key right there in its window. Then click <b>Customize me</b> to <a href="/create/">make it yours</a>.</p></div></li>
+      <li><div class="body"><h3>Paste this into a terminal</h3>
+        <div class="code" data-os-only="mac">curl -LsSf https://gemlin.dev/install.sh | sh<button type="button">Copy</button></div>
+        <div class="code" data-os-only="windows" hidden>powershell -ExecutionPolicy ByPass -c "irm https://gemlin.dev/install.ps1 | iex"<button type="button">Copy</button></div>
+        <p class="muted" data-os-only="mac">On a Mac, open <b>Terminal</b> (press ⌘ Space and type Terminal). It installs Gemlin with its own Python, so nothing else on your computer changes. <a href="/install.sh">Read the script</a>.</p>
+        <p class="muted" data-os-only="windows" hidden>Open <b>PowerShell</b> from the Start menu. It installs Gemlin with its own Python, so nothing else on your computer changes. <a href="/install.ps1">Read the script</a>.</p></div></li>
+      <li><div class="body"><h3>Say hi</h3>
+        <p class="muted">Gemlin wakes up on your desktop with its chat window open. The first time, it helps you get a free Google API key right there: click <b>Get a free key</b>, then paste the key into its chat box. The installer also asks whether Gemlin should wake up whenever you log in.</p></div></li>
+      <li><div class="body"><h3>Make it yours</h3>
+        <p class="muted">Click <b>Customize me</b> under Gemlin's chat box (or open <a href="/create/">the creator</a>), pick a name, personality, hat and colors, then paste the code back into its chat.</p></div></li>
     </ol>
+    <details class="tinker">
+      <summary>Want to change Gemlin's code? Install it from source instead</summary>
+      <p class="muted">You'll need Python 3.10 or newer and git.</p>
+      <div class="code" data-os-only="mac">git clone https://github.com/alexinslc/gemlin
+cd gemlin
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+gemlin start<button type="button">Copy</button></div>
+      <div class="code" data-os-only="windows" hidden>git clone https://github.com/alexinslc/gemlin
+cd gemlin
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+gemlin start<button type="button">Copy</button></div>
+      <p class="muted">Edits take effect after <code>gemlin restart</code>. In a new terminal, run the activate line first.</p>
+    </details>
+  </section>
+
+  <section id="commands" aria-labelledby="commands-title">
+    <h2 id="commands-title">The gemlin command</h2>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td><code>gemlin start</code></td><td>Wake Gemlin up on your desktop</td></tr>
+          <tr><td><code>gemlin stop</code></td><td>Put it to sleep (so does right-click → <i>Go to sleep</i>)</td></tr>
+          <tr><td><code>gemlin restart</code></td><td>Stop, then start, after you change its skills or code</td></tr>
+          <tr><td><code>gemlin status</code></td><td>Is it awake? Is your key saved?</td></tr>
+          <tr><td><code>gemlin autostart on</code></td><td>Wake up whenever you log in (<code>off</code> turns it off)</td></tr>
+          <tr><td><code>gemlin setup</code></td><td>Check everything and save your API key from the terminal</td></tr>
+          <tr><td><code>gemlin look CODE</code></td><td>Use a look from the creator (or just paste the code into Gemlin's chat)</td></tr>
+          <tr><td><code>gemlin skills</code></td><td>List its skills; <code>skills add FILE</code> adds one someone shared</td></tr>
+          <tr><td><code>gemlin develop IDEA</code></td><td>Build a new skill with Gemma's help</td></tr>
+          <tr><td><code>gemlin logs</code></td><td>See what Gemlin has been doing</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">In Gemlin's chat window, type <code>/help</code> for shortcuts like <code>/develop</code> and <code>/skills</code>.</p>
+  </section>
+
+  <section id="skills" aria-labelledby="skills-title">
+    <h2 id="skills-title">Skills it comes with</h2>
+    <div class="skill-list">
+      <span>Downloads check-up</span><span>Biggest files</span><span>Biggest folders</span><span>Busy apps</span>
+      <span>Disk space</span><span>Battery</span><span>Memory</span><span>System info</span><span>Network usage</span>
+      <span>Today's date and time</span><span>Recent files</span><span>Duplicate downloads</span><span>Unsaved git work</span>
+    </div>
+    <p class="muted">Every skill only looks: names, sizes, dates and totals, never what's inside your files. Gemlin's one action, moving a file into a review folder, always asks first and never deletes.</p>
   </section>
 
   <section id="extend" aria-labelledby="extend-title">
@@ -222,7 +276,7 @@ pip install -e .<button type="button">Copy</button></div>
       <p class="when">Draper × AMH · October 16, 2026</p>
       <p class="muted">The theme is <em>AI belongs to everyone</em>. You'll get Gemlin running, give it a personality, and teach it a new skill of your own. No AI experience needed.</p>
       <ul>
-        <li>Bring a laptop with Python 3.10 or newer.</li>
+        <li>Bring a laptop (Mac, Windows or Linux). The installer takes care of Python.</li>
         <li>Have a Google account ready for your free API key.</li>
         <li>Curious what to build? Wifi info, screen time, git repos with uncommitted changes…</li>
       </ul>

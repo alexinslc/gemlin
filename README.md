@@ -6,31 +6,40 @@ The default creature is **Gemlin**, a cheeky little gem-flavored creature (a pla
 
 Built for the **Gemlin** workshop at Hacktoberfest Hack Day Draper x AMH (Oct 16, 2026). Theme: *AI belongs to everyone.*
 
-## Setup
+## Install
 
-You need **Python 3.10+** and a Google account.
+All you need is a Google account. Paste one line into a terminal:
 
-1. **Download Gemlin**: `git clone https://github.com/alexinslc/gemlin`, or use *Code → Download ZIP* and unzip it. Then `cd gemlin`.
-2. **Install it** in a virtual environment (Homebrew Python refuses a plain `pip install`):
-   ```bash
-   # Mac / Linux
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -e .
-   ```
-   ```powershell
-   # Windows
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -e .
-   ```
-   Open a new terminal later? Run the `activate` line again in the gemlin folder first. (Prefer `gemlin` everywhere? `pipx install -e .` or `uv tool install -e .` also work.)
-3. **Wake it up:**
-   ```bash
-   gemlin start
-   ```
-   Gemlin appears on your desktop with its chat window open. The first time, it walks you through getting a free Gemini API key (from https://aistudio.google.com/apikey) right in its window: click **Get a free key**, then paste the key into its chat box. The box hides what you paste. Prefer the terminal? `gemlin setup` does the same.
-4. **Make it yours**: click **Customize me** under its chat box (or go to [gemlin.dev/create](https://gemlin.dev/create/)), pick a name, personality, hat and colors, click Copy, and paste the code into Gemlin's chat window.
+```bash
+# Mac / Linux (on a Mac, open Terminal: press ⌘ Space and type Terminal)
+curl -LsSf https://gemlin.dev/install.sh | sh
+```
+```powershell
+# Windows (open PowerShell from the Start menu)
+powershell -ExecutionPolicy ByPass -c "irm https://gemlin.dev/install.ps1 | iex"
+```
+
+The installer ([install.sh](site/install.sh), [install.ps1](site/install.ps1)) uses [uv](https://docs.astral.sh/uv/) to install Gemlin with its own copy of Python, so nothing else on your computer changes and you don't need Python or git yourself. It asks whether Gemlin should wake up whenever you log in, then wakes it up. Run it again any time to update.
+
+Then:
+
+1. **Get a key, in Gemlin's window.** The first time, Gemlin walks you through getting a free Gemini API key: click **Get a free key** (Google AI Studio opens), create one, and paste it into Gemlin's chat box. The box hides what you paste. (`gemlin setup` does the same from the terminal.)
+2. **Make it yours.** Click **Customize me** under its chat box (or go to [gemlin.dev/create](https://gemlin.dev/create/)), pick a name, personality, hat and colors, click Copy, and paste the code into Gemlin's chat window.
+
+To remove Gemlin: `gemlin autostart off`, then `uv tool uninstall gemlin`. Your settings and skills are in `~/.gemlin` if you want to delete those too.
+
+### Install from source (to change Gemlin's code)
+
+You need **Python 3.10+** and git. In a virtual environment (Homebrew Python refuses a plain `pip install`):
+
+```bash
+git clone https://github.com/alexinslc/gemlin && cd gemlin
+python3 -m venv .venv && source .venv/bin/activate     # Windows: python -m venv .venv  then  .venv\Scripts\activate
+pip install -e .
+gemlin start
+```
+
+Your edits take effect after `gemlin restart`. In a new terminal, run the activate line first.
 
 ## The `gemlin` command
 
@@ -45,6 +54,7 @@ You need **Python 3.10+** and a Google account.
 | `gemlin chat` | Chat in the terminal instead (the desktop pet opens too; `--no-pet` for just the terminal) |
 | `gemlin logs` | What Gemlin has been doing (`-f` to keep watching) |
 | `gemlin skills` | Lists its skills. `gemlin skills new NAME` starts one; `gemlin skills add FILE` adds one someone shared |
+| `gemlin autostart on` | Wakes Gemlin up whenever you log in (`off` turns it off) |
 | `gemlin develop IDEA` | Builds a new skill with Gemma's help: try it, change it, save it (see [Extending Gemlin](#extending-gemlin)) |
 
 ## Make your own Gemlin
@@ -133,7 +143,7 @@ Key dependencies: the official [`google-genai`](https://googleapis.github.io/pyt
 
 ## Troubleshooting
 
-- **`gemlin: command not found`**: activate the virtual environment first (`source .venv/bin/activate`, or `.venv\Scripts\activate` on Windows), in the gemlin folder.
+- **`gemlin: command not found`**: open a new terminal after installing. Installed from source? Activate the virtual environment first (`source .venv/bin/activate`, or `.venv\Scripts\activate` on Windows), in the gemlin folder.
 - **"rate limited"**: wait about 30 seconds, or switch `MODEL` to `gemma-4-31b-it`. Each skill Gemlin uses counts as an extra request.
 - **"Missing or invalid API key"**: run `gemlin setup` again.
 - **Gemlin didn't appear**: `gemlin logs` shows why. `gemlin status` says whether it's awake. `gemlin setup` checks for the desktop window pieces: on a Mac, `pip install -e .` installs them; on Linux, `sudo apt install python3-tk`.
