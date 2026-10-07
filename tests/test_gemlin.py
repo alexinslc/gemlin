@@ -15,7 +15,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(gemlin, "REVIEW", tmp_path / "Gemlin_Review")
     monkeypatch.setattr(gemlin, "SKILLS", tmp_path / "skills")
     monkeypatch.setattr(gemlin, "TRUSTED", tmp_path / ".trusted_skills")
-    for name in ("HOME", "CONFIG", "LOOK", "SKILLS", "TRUSTED", "LOG", "PID"):  # ~/.gemlin -> a temp folder
+    for name in ("HOME", "CONFIG", "LOOK", "SKILLS", "TRUSTED", "LOG", "PID", "SHOW"):  # ~/.gemlin -> a temp folder
         monkeypatch.setattr(paths, name, tmp_path / ".gemlin" / getattr(paths, name).name)
     monkeypatch.setattr(gemlin.pet, "SETTINGS", paths.LOOK)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")  # tests that need no key remove it
@@ -316,9 +316,9 @@ def test_learn_skill_sends_rule_breaking_code_back_to_the_model(home, monkeypatc
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows uses the registry; tested by hand")
 def test_autostart_on_and_off(home, tmp_path, capsys):
-    args = cli.argparse.Namespace(action="on")
-    cli.autostart(args, home=tmp_path)
-    path = cli.autostart_file(tmp_path)
+    from gemlin import system
+    cli.autostart(cli.argparse.Namespace(action="on"), home=tmp_path)
+    path = system.autostart_file(tmp_path)
     assert path.exists()
     if sys.platform == "darwin":
         import plistlib
@@ -330,3 +330,37 @@ def test_autostart_on_and_off(home, tmp_path, capsys):
     assert "on" in capsys.readouterr().out.splitlines()[-1]
     cli.autostart(cli.argparse.Namespace(action="off"), home=tmp_path)
     assert not path.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the Start menu shortcut needs Windows; tested by hand")
+def test_the_gemlin_app_opens_gemlin(home, tmp_path, monkeypatch):
+    from gemlin import system
+    monkeypatch.setattr(system.subprocess, "run", lambda *a, **kw: None)  # don't register it with the real Mac
+    where = system.install_app(tmp_path)
+    if sys.platform == "darwin":
+        import plistlib
+        info = plistlib.loads((where / "Contents" / "Info.plist").read_bytes())
+        assert info["CFBundleName"] == "Gemlin" and info["LSUIElement"] is True  # no Dock icon
+        launcher = where / "Contents" / "MacOS" / "Gemlin"
+        assert launcher.stat().st_mode & 0o111 and "-m gemlin show" in launcher.read_text()
+        assert (where / "Contents" / "Resources" / "Gemlin.icns").exists()
+    else:
+        assert "-m gemlin show" in where.read_text()
+        assert (tmp_path / ".local/share/icons/hicolor/48x48/apps/gemlin.png").exists()
+    system.remove_app(tmp_path)
+    assert not where.exists()
+
+
+def test_show_opens_the_chat_when_awake(home, monkeypatch):
+    monkeypatch.setattr(cli, "running", lambda: object())
+    assert cli.main(["show"]) == 0 and paths.SHOW.exists()
+
+
+def test_version_comparison():
+    from gemlin import system
+    assert system.newer("0.10.0", "0.9.9") and not system.newer("0.3.0", "0.3.0") and not system.newer("0.2.9", "0.3.0")
+
+
+def test_update_from_source_says_git_pull(home, capsys):
+    cli.main(["update"])  # the tests run from a git checkout
+    assert "git pull" in capsys.readouterr().out

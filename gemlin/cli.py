@@ -12,18 +12,22 @@
                           gemlin skills add FILE  adds a skill someone shared (it asks before loading)
   gemlin develop IDEA     build a new skill with Gemma's help: try it, change it, save it
   gemlin autostart on     wake Gemlin up whenever you log in (off turns it off)
+  gemlin show             wake Gemlin up, or open its chat if it's awake (what the Gemlin app does)
+  gemlin app              add Gemlin to Applications / the Start menu / your app launcher
+  gemlin update           update to the newest version
+  gemlin uninstall        put it to sleep and remove its app and login item
 """
 import argparse
 import ast
 import getpass
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 import webbrowser
 from contextlib import suppress
-from pathlib import Path
 
 import psutil
 
@@ -194,8 +198,8 @@ def status(args):
         print(f"{name()} is asleep. Wake it up with:  gemlin start")
     print(f"  API key: {'saved' if paths.api_key() else 'missing (run gemlin setup)'}")
     print(f"  Look:    {'yours, from gemlin.dev' if paths.LOOK.exists() else 'the default (make yours at ' + CREATOR + ')'}")
-    if sys.platform != "win32":
-        print(f"  Wakes up at login: {'yes' if autostart_file().exists() else 'no (gemlin autostart on)'}")
+    from . import system
+    print(f"  Wakes up at login: {'yes' if system.autostart_enabled() else 'no (gemlin autostart on)'}")
     return 0
 
 
@@ -351,64 +355,89 @@ def new_skill(skill):
     return 0
 
 
-# ---------- waking up at login ----------
+# ---------- the app, login, updates ----------
 
-LABEL = "dev.gemlin"
-
-
-def launch_command():
-    """How the computer should run `gemlin start` at login: this same Python, so it finds this Gemlin."""
-    python = Path(sys.executable)
-    if sys.platform == "win32" and (python.parent / "pythonw.exe").exists():
-        python = python.parent / "pythonw.exe"  # no console window popping up at login
-    return [str(python), "-m", "gemlin", "start"]
-
-
-def autostart_file(home=None):
-    home = home or Path.home()
-    if sys.platform == "darwin":
-        return home / "Library" / "LaunchAgents" / f"{LABEL}.plist"
-    return home / ".config" / "autostart" / "gemlin.desktop"  # Linux; Windows uses the registry instead
+def show(args):
+    """What clicking the Gemlin app does: wake it up, or open its chat if it's already awake."""
+    if running():
+        paths.HOME.mkdir(parents=True, exist_ok=True)
+        paths.SHOW.touch()  # the pet notices within a second
+        return 0
+    return start(args)
 
 
 def autostart(args, home=None):
-    want = args.action
-    if sys.platform == "win32":
-        import winreg
-        run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
-            if want == "on":
-                winreg.SetValueEx(key, "Gemlin", 0, winreg.REG_SZ, subprocess.list2cmdline(launch_command()))
-            elif want == "off":
-                with suppress(FileNotFoundError):
-                    winreg.DeleteValue(key, "Gemlin")
-            try:
-                winreg.QueryValueEx(key, "Gemlin")
-                on = True
-            except FileNotFoundError:
-                on = False
-    else:
-        path = autostart_file(home)
-        if want == "on":
-            path.parent.mkdir(parents=True, exist_ok=True)
-            command = launch_command()
-            if sys.platform == "darwin":
-                import plistlib
-                path.write_bytes(plistlib.dumps({"Label": LABEL, "ProgramArguments": command, "RunAtLoad": True,
-                                                 "AbandonProcessGroup": True,  # Gemlin keeps running after start exits
-                                                 "StandardOutPath": str(paths.LOG), "StandardErrorPath": str(paths.LOG)}))
-            else:
-                path.write_text("[Desktop Entry]\nType=Application\nName=Gemlin\nComment=A tiny AI creature on your desktop\n"
-                                f"Exec={subprocess.list2cmdline(command)}\nX-GNOME-Autostart-enabled=true\n", encoding="utf-8")
-        elif want == "off":
-            path.unlink(missing_ok=True)
-        on = path.exists()
-    if want == "on":
+    from . import system
+    if args.action in ("on", "off"):
+        system.set_autostart(args.action == "on", home)
+    if args.action == "on":
         print(f"{name()} will wake up whenever you log in. (Turn it off with: gemlin autostart off)")
-    elif want == "off":
+    elif args.action == "off":
         print(f"{name()} won't wake up at login anymore. (gemlin start still works any time.)")
     else:
-        print(f"Wake up at login: {'on' if on else 'off'}  (gemlin autostart on / off)")
+        print(f"Wake up at login: {'on' if system.autostart_enabled(home) else 'off'}  (gemlin autostart on / off)")
+    return 0
+
+
+def app(args, home=None):
+    from . import system
+    if args.action == "remove":
+        system.remove_app(home)
+        print("Removed the Gemlin app.")
+        return 0
+    where = system.install_app(home)
+    found = {"darwin": "in Applications, Launchpad and Spotlight", "win32": "in the Start menu"}.get(sys.platform,
+                                                                                                     "in your app launcher")
+    print(f"Added the Gemlin app ({where}). Find it {found}: opening it wakes Gemlin up.")
+    return 0
+
+
+def update(args):
+    from . import system
+    if system.installed_from_source():
+        print(f"This Gemlin runs from the source folder {paths.PACKAGE.parent}.\n"
+              "Update it there with:  git pull   then:  gemlin restart")
+        return 0
+    latest = system.latest_version()
+    if latest is None:
+        print("Couldn't reach GitHub to check for updates. Try again in a bit.")
+        return 1
+    if not system.newer(latest) and not args.force:
+        print(f"Gemlin {__version__} is the newest version.")
+        return 0
+    uv = system.find_uv()
+    if not uv:
+        print("Run the installer again to update:  curl -LsSf https://gemlin.dev/install.sh | sh")
+        return 1
+    was_awake = running() is not None
+    stop(args, quiet=True)  # Windows can't replace files that a running Gemlin is using
+    install = [uv, "tool", "install", "--quiet", "--force", "--python", "3.13", f"gemlin @ {system.SOURCE}"]
+    print(f"Updating Gemlin {__version__} → {latest}...")
+    if sys.platform == "win32":  # this very Python is about to be replaced, so let cmd finish the job
+        after = f' && "{os.path.dirname(uv)}\\gemlin.exe" start' if was_awake else ""
+        subprocess.Popen(["cmd", "/c", subprocess.list2cmdline(install) + after],
+                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+        print("It finishes in the background" + (" and wakes Gemlin up again." if was_awake else "."))
+        return 0
+    done = subprocess.run(install)
+    if done.returncode != 0:
+        print("The update didn't work. Run the installer again:  curl -LsSf https://gemlin.dev/install.sh | sh")
+        return 1
+    print(f"✓ Updated to {latest}.")
+    if was_awake:
+        gemlin = shutil.which("gemlin") or "gemlin"
+        subprocess.run([gemlin, "start"])
+    return 0
+
+
+def uninstall(args):
+    from . import system
+    stop(args, quiet=True)
+    system.set_autostart(False)
+    system.remove_app()
+    print(f"{name()} is asleep, won't wake at login, and the app is gone.\n"
+          "Last step, to remove the program itself:  uv tool uninstall gemlin\n"
+          f"(Your key, look and skills are in {paths.HOME}. Delete that folder too if you like.)")
     return 0
 
 
@@ -447,13 +476,22 @@ def main(argv=None):
     p = commands.add_parser("autostart", help="wake Gemlin up whenever you log in: on / off")
     p.add_argument("action", nargs="?", choices=["on", "off"])
     p.set_defaults(fn=autostart)
+    commands.add_parser("show", help="wake Gemlin up, or open its chat if it's awake").set_defaults(fn=show)
+    p = commands.add_parser("app", help="add Gemlin to Applications / the Start menu (remove takes it out)")
+    p.add_argument("action", nargs="?", choices=["install", "remove"], default="install")
+    p.set_defaults(fn=app)
+    p = commands.add_parser("update", help="update Gemlin to the newest version")
+    p.add_argument("--force", action="store_true", help="reinstall even if it's up to date")
+    p.set_defaults(fn=update)
+    commands.add_parser("uninstall", help="put Gemlin to sleep and remove its app and login item").set_defaults(fn=uninstall)
     p = commands.add_parser("run")  # used by `gemlin start`; not shown in help
     p.add_argument("--background", action="store_true")
     p.set_defaults(fn=run)
     args = parser.parse_args(argv)
     if not args.command:
         status(args)
-        print("\nCommands: setup, start, stop, restart, status, look, chat, logs, skills, develop, autostart  (gemlin --help)")
+        print("\nCommands: start, stop, restart, status, show, setup, look, chat, logs, skills, develop, autostart, app,\n"
+              "          update, uninstall  (gemlin --help)")
         return 0
     return args.fn(args) or 0
 
