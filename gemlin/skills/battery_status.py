@@ -1,5 +1,5 @@
-"""Example skill: check the laptop battery. Skills are plain Python files;
-the file name must match the function name. Gemlin loads them at startup."""
+"""Built-in skill: check the laptop battery. Skills are plain Python files; the file name
+must match the function name, and the docstring tells Gemlin when to use it."""
 import psutil
 
 

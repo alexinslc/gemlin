@@ -10,7 +10,7 @@ import objc
 from Foundation import NSData, NSMakeRect, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 from PyObjCTools import AppHelper
 
-from pet import (HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, beside_pet,
+from .pet import (HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, beside_pet,
                  bubble_shape, png, review_spot)
 
 FONT, SMALL = AppKit.NSFont.systemFontOfSize_(13), AppKit.NSFont.systemFontOfSize_(10)

@@ -7,3 +7,5 @@ venv/
 .trusted_skills
 gemlin.json
 .wrangler/
+*.egg-info/
+build/

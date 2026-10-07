@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-import gemlin  # noqa: E402
+from gemlin import cli, core as gemlin, paths  # noqa: E402
 
 
 @pytest.fixture
@@ -15,6 +15,9 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(gemlin, "REVIEW", tmp_path / "Gemlin_Review")
     monkeypatch.setattr(gemlin, "SKILLS", tmp_path / "skills")
     monkeypatch.setattr(gemlin, "TRUSTED", tmp_path / ".trusted_skills")
+    for name in ("HOME", "CONFIG", "LOOK", "SKILLS", "TRUSTED", "LOG", "PID"):  # ~/.gemlin -> a temp folder
+        monkeypatch.setattr(paths, name, tmp_path / ".gemlin" / getattr(paths, name).name)
+    monkeypatch.setattr(gemlin.pet, "SETTINGS", paths.LOOK)
     monkeypatch.setattr(gemlin, "TOOLS", list(gemlin.TOOLS))
     monkeypatch.setattr(gemlin, "inbox", gemlin.queue.Queue())
     return tmp_path
@@ -97,18 +100,21 @@ def test_startup_asks_before_loading_new_or_changed_skills(home, monkeypatch, ca
     skills = home / "skills"
     skills.mkdir()
     (skills / "ping.py").write_text('def ping() -> str:\n    """Pong."""\n    return "pong"\n', encoding="utf-8")
-    for name in ("read_terminal", "start_pet"):
-        monkeypatch.setattr(gemlin, name, lambda: None)
-    monkeypatch.setattr(gemlin.genai, "Client", lambda: None)
+    monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
+    monkeypatch.setattr(gemlin.genai, "Client", lambda **kw: None)
     monkeypatch.setattr(gemlin, "new_chat", lambda history=None: None)
 
+    base = list(gemlin.TOOLS)
+
     def run(*typed):
+        monkeypatch.setattr(gemlin, "TOOLS", list(base))  # a fresh start each time, like a real launch
         answer(monkeypatch, *typed, None)  # None = the terminal closed, which ends the chat
-        gemlin.main()
+        gemlin.main(desktop=False)
         return capsys.readouterr().out.count("Load the skill")
 
     assert run("y") == 1  # first run: asks, then trusts it
     assert "ping" in [t.__name__ for t in gemlin.TOOLS]
+    assert "battery_status" in [t.__name__ for t in gemlin.TOOLS]  # built-in skills never ask
     assert run() == 0  # same code: no question
     (skills / "ping.py").write_text('def ping() -> str:\n    """Changed."""\n    return "!"\n', encoding="utf-8")
     assert run("n") == 1  # edited file: asks again
@@ -122,20 +128,18 @@ def test_pet_messages_wait_while_the_terminal_answers_a_question(home):
 
 
 def test_look_code_from_the_creator_sets_name_and_personality(home, monkeypatch, capsys):
-    monkeypatch.setattr(gemlin.pet, "SETTINGS", home / "gemlin.json")
-    for name in ("read_terminal", "start_pet"):
-        monkeypatch.setattr(gemlin, name, lambda: None)
-    monkeypatch.setattr(gemlin.genai, "Client", lambda: None)
+    monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
+    monkeypatch.setattr(gemlin.genai, "Client", lambda **kw: None)
     monkeypatch.setattr(gemlin, "new_chat", lambda history=None: None)
     monkeypatch.setattr(gemlin, "NAME", gemlin.NAME)
     monkeypatch.setattr(gemlin, "PERSONA", gemlin.PERSONA)
     code = gemlin.pet.base64.urlsafe_b64encode(b'{"name": "Pebble", "personality": "a calm rock."}').decode().rstrip("=")
-    monkeypatch.setattr(gemlin.sys, "argv", ["gemlin.py", "--look", code])
+    assert cli.main(["look", code]) == 0
+    assert "Meet Pebble" in capsys.readouterr().out
     answer(monkeypatch, None)
-    gemlin.main()
+    gemlin.main(desktop=False)
     assert gemlin.NAME == "Pebble" and gemlin.PERSONA == "You are Pebble, a calm rock."
     assert "Pebble wakes up" in capsys.readouterr().out
-
 
 def test_lines_typed_into_the_pet_reach_the_chat(home):
     class FakePet:
@@ -171,3 +175,82 @@ def test_closed_terminal_waits_for_the_pet_instead_of_saying_no(home, monkeypatc
     gemlin.inbox.put(("you", None))
     gemlin.inbox.put(("answer", (gemlin.asked + 1, True)))
     assert gemlin.ask("Install it?") is True
+
+
+def test_setup_saves_a_working_key_privately(home, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cli, "check_key", lambda key: None)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt="": "  my-key  ")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    cli.main(["setup"])
+    assert paths.api_key() == "my-key"
+    if sys.platform != "win32":
+        assert paths.CONFIG.stat().st_mode & 0o077 == 0  # only you can read it
+
+
+def test_environment_key_wins_over_the_saved_one(home, monkeypatch):
+    cli.save_key("saved-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
+    assert paths.api_key() == "env-key"
+
+
+def test_start_needs_a_key(home, monkeypatch, capsys):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert cli.main(["start"]) == 1
+    assert "gemlin setup" in capsys.readouterr().out
+
+
+def test_stop_and_status_when_asleep(home, capsys):
+    paths.HOME.mkdir(parents=True)
+    paths.PID.write_text("999999999")  # a stale pid from a crash
+    assert cli.main(["stop"]) == 0 and not paths.PID.exists()
+    cli.main(["status"])
+    assert "asleep" in capsys.readouterr().out
+
+
+def test_skills_new_starts_a_skill_that_still_asks_first(home, capsys):
+    assert cli.main(["skills", "new", "wifi_name"]) == 0
+    assert (paths.SKILLS / "wifi_name.py").exists()
+    assert cli.main(["skills", "new", "battery_status"]) == 1  # taken by a built-in
+    capsys.readouterr()
+    cli.main(["skills"])
+    out = capsys.readouterr().out
+    assert "battery_status" in out and "wifi_name" in out and "[asks before loading]" in out
+
+
+def test_going_to_sleep_during_a_question_says_no_and_quits(home, monkeypatch):
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    gemlin.inbox.put(("pet", "can you hurry?"))  # chat while the question is open: kept for later
+    gemlin.inbox.put(("pet", "quit"))
+    assert gemlin.ask("Install it?") is False
+    assert gemlin.next_line("pet") == ("pet", "can you hurry?")
+    assert gemlin.next_line("pet") == ("pet", "quit")  # the main loop still sees it and stops
+
+
+def test_pet_crash_during_a_question_with_no_terminal_says_no(home, monkeypatch):
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    monkeypatch.setattr(gemlin, "terminal_open", False)
+    gemlin.inbox.put(("gone", None))
+    assert gemlin.ask("Move it?") is False
+    assert gemlin.next_line("gone") == ("gone", None)
+
+
+def test_pet_crash_during_a_question_lets_the_terminal_answer(home, monkeypatch):
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    monkeypatch.setattr(gemlin, "terminal_open", True)
+    gemlin.inbox.put(("gone", None))
+    gemlin.inbox.put(("you", "y"))
+    assert gemlin.ask("Move it?") is True
+    assert gemlin.next_line("gone") == ("gone", None)
+
+
+def test_chat_ends_when_the_terminal_closed_and_then_the_pet_goes(home, monkeypatch, capsys):
+    monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
+    monkeypatch.setattr(gemlin.genai, "Client", lambda **kw: None)
+    monkeypatch.setattr(gemlin, "new_chat", lambda history=None: None)
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    monkeypatch.setattr(gemlin, "pet_alive", lambda: True)  # still open when the terminal closes
+    gemlin.inbox.put(("you", None))  # the terminal closes first...
+    gemlin.inbox.put(("gone", None))  # ...then the pet crashes: nothing left, so Gemlin stops
+    gemlin.main(desktop=False)
+    assert "goes back to sleep" in capsys.readouterr().out

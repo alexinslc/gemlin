@@ -1,23 +1,21 @@
 """Gemlin's desktop pet: a little creature that walks along the bottom of your screen.
 
-gemlin.py starts it for you (or run `python pet.py` to just watch it walk). It builds
-its sprites from the art in site/art, recolored with your gemlin.json. Make your look
-at https://gemlin.dev/create, then run the `python gemlin.py --look ...` command it gives you.
+`gemlin start` opens it for you (or run `python -m gemlin.pet` to just watch it walk).
+It builds its sprites from the art in gemlin/art, recolored with your look. Make your
+look at https://gemlin.dev/create, then run the `gemlin look ...` command it gives you.
 
 This file decides what the pet does (the Brain). The windows are drawn by pet_mac.py
 on a Mac and pet_tk.py on Windows and Linux.
 
-gemlin.py and the pet talk with one JSON message per line:
+core.py and the pet talk with one JSON message per line:
   to the pet (stdin):    {"do": "think" | "tool" | "ask" | "answered" | "idle" | "say" | "oops" | "bye", ...}
   from the pet (stdout): {"say": "something you typed"}, {"answer": 1, "yes": true} or {"quit": true}
 """
 # ruff: noqa: E401
 import base64, functools, json, queue, random, re, struct, sys, threading, zlib
 from contextlib import suppress
-from pathlib import Path
 
-HERE = Path(__file__).parent
-ART, SETTINGS = HERE / "site" / "art", HERE / "gemlin.json"
+from .paths import ART, LOOK as SETTINGS
 DEFAULTS = {
     "name": "Gemlin",
     "personality": "a cheeky little creature who lives inside this laptop. You love tidy disks "
@@ -68,6 +66,7 @@ def save_look(code):
     if not isinstance(raw, dict):
         raise ValueError("not a look code")
     me = clean(raw)
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS.write_text(json.dumps(me, indent=2) + "\n", encoding="utf-8")
     return me
 
@@ -167,7 +166,7 @@ class Sprites:
         return self.frames[key]
 
 def write_manifest():
-    """List the art for the creator site, which can't look inside folders: python pet.py --manifest"""
+    """List the art for the website, which can't look inside folders: python -m gemlin.pet --manifest"""
     art = {slot: {name: sorted(p.stem for p in (ART / slot / name).glob("*.png")) for name in options(slot)}
            for slot in FIRST_FRAME}
     (ART / "manifest.json").write_text(json.dumps(art, indent=1) + "\n", encoding="utf-8")
@@ -387,12 +386,12 @@ def run(follow):
             stream.reconfigure(encoding="utf-8")  # gemlin.py talks to us in UTF-8, even on Windows
     try:
         if sys.platform == "darwin":
-            import pet_mac as window  # Tk can't make see-through windows on current macOS
+            from . import pet_mac as window  # Tk can't make see-through windows on current macOS
         else:
-            import pet_tk as window
+            from . import pet_tk as window
     except ImportError as e:
         v = "%d.%d" % sys.version_info[:2]
-        fix = {"darwin": "pip install -r requirements.txt", "linux": "sudo apt install python3-tk"}
+        fix = {"darwin": "pip install -e . (in the gemlin folder)", "linux": "sudo apt install python3-tk"}
         sys.exit(f"  (no desktop pet: {e.name} is missing. To add it: "
                  f"{fix.get(sys.platform, f'reinstall Python {v} from python.org with Tcl/Tk')})")
     window.run(load_settings(), follow)

@@ -8,7 +8,7 @@ import sys
 import tkinter as tk
 from contextlib import suppress
 
-from pet import (HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, beside_pet,
+from .pet import (HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, beside_pet,
                  bubble_shape, png, review_spot)
 
 CLEAR = "#ff00ff"  # the art never uses magenta, so it can be the see-through color
@@ -152,12 +152,14 @@ class TkPet:
                 box.pack(pady=(10, 0), fill="both")
                 lines = code.count("\n") + 1
                 text = tk.Text(box, width=72, height=min(22, lines), font=CODE, wrap="none", bg="white", fg=INK, bd=1)
-                scroll = tk.Scrollbar(box, command=text.yview)
-                text.configure(yscrollcommand=scroll.set)
+                down = tk.Scrollbar(box, command=text.yview)
+                across = tk.Scrollbar(box, orient="horizontal", command=text.xview)  # long lines stay readable
+                text.configure(yscrollcommand=down.set, xscrollcommand=across.set)
                 text.insert("1.0", code)
                 text.configure(state="disabled")
-                text.pack(side="left", fill="both")
-                scroll.pack(side="right", fill="y")
+                text.grid(row=0, column=0, sticky="nsew")
+                down.grid(row=0, column=1, sticky="ns")
+                across.grid(row=1, column=0, sticky="ew")
             buttons = tk.Frame(frame, bg=PAPER)
             buttons.pack(anchor="e", pady=(12, 0))
             tk.Button(buttons, text="No", command=lambda: self.brain.answer(False)).pack(side="left", padx=(0, 8))

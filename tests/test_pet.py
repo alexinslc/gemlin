@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-import pet  # noqa: E402
+from gemlin import pet  # noqa: E402
 
 FRAMES = [(view, body, eyes, mouth, left) for view in ("front", "side") for body in ("stand", "walk_1", "walk_2")
           for eyes in ("open", "blink") for mouth in ("closed", "talk_1") for left in (False, True)]
@@ -74,7 +74,7 @@ def test_manifest_is_up_to_date():
     committed = json.loads((pet.ART / "manifest.json").read_text(encoding="utf-8"))
     real = {slot: {name: sorted(p.stem for p in (pet.ART / slot / name).glob("*.png")) for name in pet.options(slot)}
             for slot in pet.FIRST_FRAME}
-    assert committed == real, "the art changed: run python pet.py --manifest"
+    assert committed == real, "the art changed: run python -m gemlin.pet --manifest"
 
 
 def test_pages_split_long_replies():

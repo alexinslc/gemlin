@@ -141,9 +141,9 @@ footer a { color: var(--muted); }
   <section id="what" aria-labelledby="what-title">
     <h2 id="what-title">What it does</h2>
     <div class="cards">
-      <article class="card"><span class="tag">senses</span><h3>Knows your laptop</h3><p>Checks your Downloads, finds the biggest files, spots busy processes, and reads disk space and battery. It sees names, sizes and dates, never what's inside your files.</p></article>
+      <article class="card"><span class="tag">skills</span><h3>Knows your laptop</h3><p>Comes with skills for your Downloads, big files and folders, busy apps, battery, memory, duplicates and unsaved git work. It sees names, sizes and dates, never what's inside your files.</p></article>
       <article class="card"><span class="tag">desktop pet</span><h3>Lives on your screen</h3><p>Walks back and forth, turns to face you when it talks, and answers in speech bubbles. Chat in its little window, or drag it somewhere else.</p></article>
-      <article class="card"><span class="tag">learn_skill</span><h3>Teaches itself tricks</h3><p>Ask for something it can't do yet and it writes a new Python tool. It shows you the code first, and nothing runs until you click <b>Yes</b>.</p></article>
+      <article class="card"><span class="tag">learn_skill</span><h3>Teaches itself tricks</h3><p>Ask for something it can't do yet and it writes a new Python tool. It shows you the code first, and nothing runs until you say yes.</p></article>
       <article class="card"><span class="tag">safe by default</span><h3>You're in charge</h3><p>Its tools only look; they never change anything. Its one action moves a file into a review folder, never deletes, and always asks first.</p></article>
     </div>
   </section>
@@ -152,7 +152,7 @@ footer a { color: var(--muted); }
     <div class="split">
       <div>
         <h2 id="chat-title">Ask it anything about your laptop</h2>
-        <p class="muted">Type into Gemlin's little chat window and it answers in a speech bubble. When it uses a tool it tells you, and anything that changes your machine waits for you to click <b>Yes</b>.</p>
+        <p class="muted">Type into Gemlin's little chat window and it answers in a speech bubble. When it uses a tool it tells you, and anything that changes your machine waits for your yes.</p>
         <p class="muted">Want a new personality? A dragon that hoards big files, an anxious librarian? <a href="/create/">Make your own</a>.</p>
       </div>
       <div class="terminal" aria-label="Example conversation">
@@ -185,18 +185,17 @@ cd gemlin<button type="button">Copy</button></div>
       <li><div class="body"><h3>Install it</h3>
         <div class="code" data-os-only="mac">python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt<button type="button">Copy</button></div>
+pip install -e .<button type="button">Copy</button></div>
         <div class="code" data-os-only="windows" hidden>python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt<button type="button">Copy</button></div></div></li>
-      <li><div class="body"><h3>Add your key</h3>
-        <div class="code" data-os-only="mac">export GEMINI_API_KEY="your-key-here"<button type="button">Copy</button></div>
-        <div class="code" data-os-only="windows" hidden>setx GEMINI_API_KEY "your-key-here"<button type="button">Copy</button></div>
-        <p class="muted" data-os-only="windows" hidden>Then close the terminal, open a new one in the gemlin folder, and run the activate line again.</p></div></li>
+pip install -e .<button type="button">Copy</button></div>
+        <p class="muted">That gives you the <code>gemlin</code> command. In a new terminal later, run the activate line again first.</p></div></li>
+      <li><div class="body"><h3>Set it up</h3>
+        <div class="code">gemlin setup<button type="button">Copy</button></div>
+        <p class="muted">It checks everything and asks for your key (it stays hidden as you paste it).</p></div></li>
       <li><div class="body"><h3>Wake it up</h3>
-        <div class="code" data-os-only="mac">python3 gemlin.py<button type="button">Copy</button></div>
-        <div class="code" data-os-only="windows" hidden>python gemlin.py<button type="button">Copy</button></div>
-        <p class="muted">Gemlin appears on your desktop with its chat window open. Say hi! <a href="/create/">Make your own Gemlin</a> first if you like: the creator gives you one command that does it all.</p></div></li>
+        <div class="code">gemlin start<button type="button">Copy</button></div>
+        <p class="muted">Gemlin appears on your desktop with its chat window open. Say hi! Later: <code>gemlin stop</code>, <code>gemlin restart</code>, <code>gemlin status</code>. <a href="/create/">Make your own Gemlin</a> any time: the creator gives you one <code>gemlin look</code> command.</p></div></li>
     </ol>
   </section>
 
