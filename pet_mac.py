@@ -10,9 +10,11 @@ import objc
 from Foundation import NSData, NSMakeRect, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 from PyObjCTools import AppHelper
 
-from pet import HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, bubble_shape, png
+from pet import (HOP, INK, MUTED, PAD, PAPER, SCALE, SIZE, TAIL, TEXT_WIDTH, TICK, Brain, above_pet, beside_pet,
+                 bubble_shape, png, review_spot)
 
 FONT, SMALL = AppKit.NSFont.systemFontOfSize_(13), AppKit.NSFont.systemFontOfSize_(10)
+CODE = AppKit.NSFont.monospacedSystemFontOfSize_weight_(11.5, 0)
 
 def color(hex_color):
     r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
@@ -36,6 +38,7 @@ def clear_window(w, h, kind=AppKit.NSWindow):
     win.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
                                | AppKit.NSWindowCollectionBehaviorStationary)
     win.setReleasedWhenClosed_(False)
+    win.setAppearance_(AppKit.NSAppearance.appearanceNamed_(AppKit.NSAppearanceNameAqua))  # light, like the cream panels
     return win
 
 class KeyWindow(AppKit.NSWindow):  # borderless windows can't take typing unless they say so
@@ -89,9 +92,11 @@ class BubbleView(FlippedView):
     def mouseDown_(self, event):
         self.owner.brain.bubble_clicked()
 
-class ChatView(FlippedView):
+class PanelView(FlippedView):  # the cream card behind the chat box and the yes/no window
     def drawRect_(self, rect):
-        box = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(1, 1, 298, 80), 6, 6)
+        size = self.bounds().size
+        box = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(1, 1, size.width - 2, size.height - 2), 6, 6)
         color(PAPER).setFill()
         box.fill()
         color(INK).setStroke()
@@ -105,7 +110,7 @@ class MacPet(NSObject):
         whole, usable = screen.frame(), screen.visibleFrame()
         self.top = whole.size.height  # Cocoa counts y up from the bottom; Brain counts down from the top
         self.brain = Brain(me, int(whole.size.width), int(self.top - usable.origin.y), follow)
-        self.images, self.shown, self.chat = {}, None, None
+        self.images, self.shown, self.chat, self.review = {}, None, None, None
         self.win = clear_window(SIZE, SIZE + HOP)
         self.view = PetView.alloc().initWithFrame_(NSMakeRect(0, 0, SIZE, SIZE + HOP))
         self.view.owner, self.view.image, self.view.lift = self, None, 0
@@ -154,8 +159,9 @@ class MacPet(NSObject):
             self.view.image, self.view.lift = self.images[b.frame], b.lift
             self.view.setNeedsDisplay_(True)
         self.place(self.win, b.x, b.y)
-        self.sync_bubble(None if b.chatting else b.bubble)
+        self.sync_bubble(b.bubble)
         self.sync_chat()
+        self.sync_review()
 
     @objc.python_method
     def sync_bubble(self, want):
@@ -178,10 +184,17 @@ class MacPet(NSObject):
             self.place(self.bubble_win, *above_pet(self.brain, *self.bubble.size))
 
     @objc.python_method
+    def focus(self, win, view):  # take the keyboard so you can type straight away
+        app = AppKit.NSApp
+        app.activate() if hasattr(app, "activate") else app.activateIgnoringOtherApps_(True)
+        win.makeKeyAndOrderFront_(None)
+        win.makeFirstResponder_(view)
+
+    @objc.python_method
     def sync_chat(self):
         if self.brain.chatting and not self.chat:
             self.chat = clear_window(300, 82, KeyWindow)
-            view = ChatView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 82))
+            view = PanelView.alloc().initWithFrame_(NSMakeRect(0, 0, 300, 82))
             for text, y, font, ink in ((f"Say something to {self.brain.me['name']}", 8, SMALL, INK),
                                        ("Enter to send · Esc to close", 60, SMALL, MUTED)):
                 label = AppKit.NSTextField.labelWithAttributedString_(styled(text, font, ink))
@@ -194,19 +207,76 @@ class MacPet(NSObject):
             field.setDelegate_(self)
             view.addSubview_(field)
             self.chat.setContentView_(view)
-            self.place(self.chat, *above_pet(self.brain, 300, 82, tail_x=150))
-            app = AppKit.NSApp
-            app.activate() if hasattr(app, "activate") else app.activateIgnoringOtherApps_(True)
-            self.chat.makeKeyAndOrderFront_(None)
-            self.chat.makeFirstResponder_(field)
+            self.chat_field = field
+            if not self.review:
+                self.focus(self.chat, field)
         elif not self.brain.chatting and self.chat:
             self.chat.orderOut_(None)
             self.chat = None
             if hasattr(AppKit.NSApp, "deactivate"):
                 AppKit.NSApp.deactivate()  # hand the keyboard back to what you were doing
+        if self.chat:  # it follows the pet around, even while you drag it
+            self.place(self.chat, *beside_pet(self.brain, 300, 82))
+
+    @objc.python_method
+    def sync_review(self):
+        asking = self.brain.asking
+        if self.review and (not asking or asking["id"] != self.review_id):
+            self.review.orderOut_(None)
+            self.review = None
+            if self.chat:
+                self.focus(self.chat, self.chat_field)
+        if asking and not self.review:
+            code = asking["code"]
+            w = 560 if code else 340
+            question = AppKit.NSTextField.wrappingLabelWithString_(asking["question"])
+            question.setFont_(FONT)
+            question.setTextColor_(color(INK))
+            question.setPreferredMaxLayoutWidth_(w - 32)
+            qh = question.fittingSize().height
+            ch = min(340, 18 + 15 * (code.count("\n") + 1)) if code else 0
+            h = 16 + qh + (12 + ch if code else 0) + 54
+            self.review, self.review_id = clear_window(w, h, KeyWindow), asking["id"]
+            view = PanelView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+            question.setFrame_(NSMakeRect(16, 14, w - 32, qh))
+            view.addSubview_(question)
+            if code:
+                scroll = AppKit.NSScrollView.alloc().initWithFrame_(NSMakeRect(16, 16 + qh + 10, w - 32, ch))
+                scroll.setHasVerticalScroller_(True)
+                scroll.setHasHorizontalScroller_(True)
+                scroll.setBorderType_(AppKit.NSBezelBorder)
+                text = AppKit.NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, w - 36, ch))
+                text.setHorizontallyResizable_(True)  # long lines scroll sideways instead of wrapping
+                text.textContainer().setWidthTracksTextView_(False)
+                text.textContainer().setContainerSize_((10_000, 10_000_000))
+                text.setEditable_(False)
+                text.setFont_(CODE)
+                text.setString_(code)
+                scroll.setDocumentView_(text)
+                view.addSubview_(scroll)
+            no = AppKit.NSButton.buttonWithTitle_target_action_("No", self, "answerNo:")
+            no.setKeyEquivalent_("\x1b")  # Esc means no. Yes needs a click, so nothing gets approved by accident
+            yes = AppKit.NSButton.buttonWithTitle_target_action_("Yes, install it" if code else "Yes", self, "answerYes:")
+            right = w - 16
+            for button in (yes, no):  # right to left: Yes, then No
+                button.sizeToFit()
+                bw = button.frame().size.width + 16
+                button.setFrame_(NSMakeRect(right - bw, h - 44, bw, 30))
+                view.addSubview_(button)
+                right -= bw + 8
+            self.review.setContentView_(view)
+            self.place(self.review, *review_spot(self.brain, w, h))
+            self.focus(self.review, no)
+
+    def answerYes_(self, button):
+        self.brain.answer(True)
+
+    def answerNo_(self, button):
+        self.brain.answer(False)
 
     def send_(self, field):
         self.brain.heard(field.stringValue())
+        field.setStringValue_("")
 
     @objc.typedSelector(b"Z@:@@:")
     def control_textView_doCommandBySelector_(self, control, view, command):
@@ -223,7 +293,7 @@ class MacPet(NSObject):
         item.setTitle_("Stay here" if self.brain.wander else "Walk around")
 
     def goToSleep_(self, item):
-        self.brain.done = True
+        self.brain.quit()
 
 def run(me, follow):
     app = AppKit.NSApplication.sharedApplication()

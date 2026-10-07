@@ -8,8 +8,8 @@ This file decides what the pet does (the Brain). The windows are drawn by pet_ma
 on a Mac and pet_tk.py on Windows and Linux.
 
 gemlin.py and the pet talk with one JSON message per line:
-  to the pet (stdin):    {"do": "think" | "tool" | "ask" | "idle" | "say" | "oops" | "bye", ...}
-  from the pet (stdout): {"say": "something you typed into the pet's chat box"}
+  to the pet (stdin):    {"do": "think" | "tool" | "ask" | "answered" | "idle" | "say" | "oops" | "bye", ...}
+  from the pet (stdout): {"say": "something you typed"}, {"answer": 1, "yes": true} or {"quit": true}
 """
 # ruff: noqa: E401
 import base64, functools, json, queue, random, re, struct, sys, threading, zlib
@@ -201,6 +201,17 @@ def above_pet(brain, w, h, tail_x=40):
     x = min(max(0, int(brain.x + SIZE / 2 - tail_x)), brain.screen_w - w)
     return x, int(brain.y + HOP + brain.art.top * SCALE - h + 2)
 
+def beside_pet(brain, w, h):
+    """Top-left corner for the chat box: next to the pet, on whichever side has room."""
+    x = brain.x + SIZE - 8 if brain.x + SIZE - 8 + w <= brain.screen_w else brain.x - w + 8
+    return int(max(0, x)), int(brain.y + HOP + SIZE - h - 10)
+
+def review_spot(brain, w, h):
+    """Top-left corner for a yes/no question: middle of the screen when there's code to read."""
+    if brain.asking and brain.asking.get("code"):
+        return int((brain.screen_w - w) / 2), int(max(20, (brain.floor - h) / 2))
+    return above_pet(brain, w, h, tail_x=w // 2)
+
 class Brain:
     """Decides where the pet walks, what it says and which frame shows. The window code
     (pet_mac.py or pet_tk.py) calls step() 25 times a second, then draws:
@@ -208,6 +219,7 @@ class Brain:
       x, y:        where the pet's window goes (top-left, screen pixels)
       bubble:      (text, footer) for the speech bubble, or None
       chatting:    whether the chat box should be open
+      asking:      {"id", "question", "code"} while a yes/no question waits, else None
       done:        time to close"""
 
     def __init__(self, me, screen_w, floor, follow):
@@ -217,11 +229,12 @@ class Brain:
         self.target, self.rest, self.left, self.wander = None, 50, False, True
         self.tick, self.blink_at, self.talk_until, self.hide_at, self.quit_at = 0, 60, 0, None, None
         self.mode, self.status, self.pages, self.page_count, self.seconds = "wander", None, [], 0, None
-        self.grab, self.chatting, self.done, self.leaving = None, False, False, False
+        self.grab, self.done, self.leaving, self.asking = None, False, False, None
+        self.chatting = follow  # with gemlin.py running, the chat box is open from the start
         self.bubble, self.frame, self.lift = None, None, 0
         if follow:
             threading.Thread(target=self.listen, daemon=True).start()
-        self.say(f"Hi, I'm {me['name']}! Click me to chat.", seconds=5)
+        self.say(f"Hi, I'm {me['name']}! " + ("What can I do for you?" if follow else "Click me to chat."), seconds=6)
 
     # --- messages from gemlin.py ---
     def listen(self):  # runs in a thread; the window only changes inside step()
@@ -237,7 +250,13 @@ class Brain:
         elif do == "tool":
             self.set_mode("think", f"using {str(event.get('name', 'a tool')).replace('_', ' ')}...")
         elif do == "ask":
-            self.set_mode("ask", "psst! I need a y or n in the terminal")
+            self.asking = {"id": event.get("id"), "question": str(event.get("question") or "Is that OK?"),
+                           "code": event.get("code") if isinstance(event.get("code"), str) else None}
+            self.set_mode("ask")
+        elif do == "answered":  # answered in the terminal instead
+            if self.asking and self.asking["id"] == event.get("id"):
+                self.asking = None
+                self.set_mode("wander")
         elif do == "idle":
             self.set_mode("wander")
         elif do == "say":
@@ -294,8 +313,7 @@ class Brain:
         if self.mode == "talk":
             self.next_page()
 
-    def heard(self, text):
-        self.chatting = False
+    def heard(self, text):  # the chat box stays open, ready for the next message
         text = text.strip()
         if not text:
             return
@@ -304,6 +322,17 @@ class Brain:
             self.set_mode("think", "...")
         else:
             self.say("I can only chat while gemlin.py is running. Start me with: python gemlin.py")
+
+    def answer(self, yes):
+        if self.asking:
+            print(json.dumps({"answer": self.asking["id"], "yes": bool(yes)}), flush=True)
+            self.asking = None
+            self.set_mode("think", "...")
+
+    def quit(self):  # "Go to sleep": with gemlin.py running, it goes to sleep too
+        if self.follow:
+            print(json.dumps({"quit": True}), flush=True)
+        self.done = True
 
     def toggle_wander(self):
         self.wander, self.target = not self.wander, None
@@ -317,8 +346,6 @@ class Brain:
             self.done = True
         if self.hide_at and self.tick >= self.hide_at:
             self.next_page()
-        if self.chatting and self.mode == "talk":
-            self.set_mode("wander")
         walking = False
         if self.grab:
             pass  # held by the mouse

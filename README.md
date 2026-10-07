@@ -46,7 +46,7 @@ Key dependencies: the official [`google-genai`](https://googleapis.github.io/pyt
    ```bash
    python gemlin.py                     # Mac: python3 gemlin.py (with the .venv activated)
    ```
-   Gemlin appears in the terminal *and* on your desktop. Chat in either place. Add `--no-pet` to leave the desktop pet out.
+   Gemlin appears on your desktop with its chat window open: type there and it answers in a speech bubble. The terminal just shows what it's doing (you *can* type there too). Add `--no-pet` to chat in the terminal only.
 
 ## Make your own Gemlin
 
@@ -59,13 +59,16 @@ That saves your look in `gemlin.json` and starts your Gemlin. Run the command ag
 ## The desktop pet
 
 - It **walks** back and forth along the bottom of your screen, and turns to face you when it talks.
-- **Replies show up in speech bubbles.** Long replies come in pages: click the bubble for the next one. The full reply is always in the terminal too.
-- **Click it to chat**: type in the box, press Enter (Esc closes it). **Drag it** to move it; let go and it drops back down.
-- **Right-click** for *Chat*, *Stay here* (stop walking) and *Go to sleep* (close the pet; the terminal chat keeps going).
-- When Gemlin needs a `y`/`n` (quarantine, new skills), it hops and points you to the terminal. Approvals only happen in the terminal, where you can read the code.
+- **Its chat window opens when it wakes up.** Type, press Enter, and the answer appears in a speech bubble. The window stays open for your next message; Esc closes it and clicking Gemlin brings it back.
+- **Long replies come in pages**: click the bubble for the next one. The full reply is always in the terminal too.
+- **Drag it** to move it; let go and it drops back down.
+- **Right-click** for *Chat*, *Stay here* (stop walking) and *Go to sleep* (quits Gemlin).
+- **When Gemlin needs your OK** (moving a file, a new skill), it hops and opens a window with **Yes / No**. For a skill, the window shows the whole code, centered on screen so you can read it. Yes always needs a click; Esc means No. You can also answer `y`/`n` in the terminal.
 - Run `python pet.py` to see your Gemlin walk around without chatting.
 
 ## Things to try
+
+Type these into Gemlin's chat window:
 
 ```
 you> how bad is my Downloads folder?
@@ -76,7 +79,7 @@ you> how's my battery?                       (uses the example skill in skills/)
 you> learn a skill that counts my Downloads files by extension
 ```
 
-Every time Gemlin uses a tool you'll see a line like `🔧 calling scan_downloads`. Type `quit` or `exit` to leave.
+While Gemlin uses a tool its bubble says so (`using scan downloads...`), and the terminal logs `🔧 calling scan_downloads`. To stop, right-click Gemlin and choose *Go to sleep* (or type `quit`).
 
 ## How it works
 

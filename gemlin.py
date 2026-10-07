@@ -30,7 +30,9 @@ KEY_HELP = """Missing or invalid API key. Get a free one at https://aistudio.goo
   Mac/Linux:  export GEMINI_API_KEY="your-key"
   Windows:    setx GEMINI_API_KEY "your-key"   (then open a NEW terminal)"""
 TOOLS, needs_reload, client, pet_proc = [], False, None, None
-inbox = queue.Queue()  # ("you", line) typed in the terminal, ("pet", line) typed into the pet
+inbox = queue.Queue()  # ("you", line) from the terminal, ("pet", line) from the pet's chat box,
+                       # ("answer", (id, yes)) from the pet's yes/no window, ("gone", None) if the pet closed
+asked = 0  # numbers each yes/no question, so a late answer can't approve the wrong thing
 sys.stdout.reconfigure(errors="replace")  # keeps old Windows consoles happy with emoji
 
 def tool(fn):
@@ -74,24 +76,46 @@ def start_pet():
                                 stdout=subprocess.PIPE, text=True, encoding="utf-8")
     threading.Thread(target=read_pet, args=(pet_proc,), daemon=True).start()
 
-def read_pet(proc):  # lines typed into the pet's chat box
+def read_pet(proc):  # what you do in the pet: chat, answer a question, or put it to sleep
     for line in proc.stdout:
-        with suppress(ValueError, AttributeError):
-            if (text := json.loads(line).get("say")) and isinstance(text, str):
-                inbox.put(("pet", text))
+        with suppress(ValueError, AttributeError, TypeError):
+            msg = json.loads(line)
+            if isinstance(msg.get("say"), str) and msg["say"].strip():
+                inbox.put(("pet", msg["say"]))
+            elif "answer" in msg:
+                inbox.put(("answer", (msg["answer"], msg.get("yes") is True)))
+            elif msg.get("quit"):
+                inbox.put(("pet", "quit"))
+    inbox.put(("gone", None))
 
-def tell_pet(**event):  # think, tool, ask, idle, say, oops, bye
-    if pet_proc and pet_proc.poll() is None:
+def pet_alive():
+    return pet_proc is not None and pet_proc.poll() is None
+
+def tell_pet(**event):  # think, tool, ask, answered, idle, say, oops, bye
+    if pet_alive():
         with suppress(OSError):  # pet was put to sleep: carry on without it
             pet_proc.stdin.write(json.dumps(event) + "\n")
             pet_proc.stdin.flush()
 
-def ask(question):  # approvals always come from the terminal, where the code is shown
-    tell_pet(do="ask")
+def ask(question, code=None):
+    """Yes or no from the owner: in the pet's window (which shows any code), or y in the terminal."""
+    global asked
+    asked += 1
+    tell_pet(do="ask", id=asked, question=question, code=code)
     print(f"  {question} [y/N] ", end="", flush=True)
-    _, answer = next_line("you")
-    tell_pet(do="idle")
-    return (answer or "").strip().lower() == "y"
+    while True:
+        source, answer = next_line("you", "answer")
+        if source == "you":
+            if answer is None and pet_alive():
+                continue  # no terminal to type in: wait for the pet's window
+            yes = (answer or "").strip().lower() == "y"
+            break
+        if answer[0] == asked:
+            yes = answer[1]
+            print(f"{'yes' if yes else 'no'} (answered in {NAME}'s window)")
+            break
+    tell_pet(do="answered", id=asked)
+    return yes
 
 def file_info(p):  # name, size, age. File contents never leave the laptop.
     st = p.stat()
@@ -158,7 +182,7 @@ def quarantine_file(path: str) -> str:
     src = Path(path).expanduser().resolve()
     if not src.is_relative_to(HOME.resolve()) or not src.is_file():
         return "Refused: only existing files inside the home folder can be quarantined."
-    if not ask(f"Move {src} to {REVIEW}?"):
+    if not ask(f"Move ~/{src.relative_to(HOME.resolve()).as_posix()} to ~/{REVIEW.name}? Nothing gets deleted."):
         return "Owner said no. File untouched."
     REVIEW.mkdir(exist_ok=True)
     dest = REVIEW / src.name
@@ -195,7 +219,7 @@ def learn_skill(name: str, description: str, code: str) -> str:
     show_code(f"{NAME} wants to learn: {name}", code)
     if not name.isidentifier() or name in [t.__name__ for t in TOOLS]:
         return "Refused: name must be a new, valid Python identifier."
-    if not ask("Install this skill? Only say y if you read and understand the code."):
+    if not ask(f"{NAME} wrote a new skill, {name}. Install it? Only say yes if you read and understand the code.", code):
         return "Owner said no. Skill not installed."
     try:
         fn = load_skill(name, code)
@@ -240,7 +264,7 @@ def main():
         code = f.read_text(encoding="utf-8")
         if fingerprint(code) not in trusted:  # new or changed since you last approved it
             show_code(f"new skill: {f.name}", code)
-            if not ask("Load this skill? Only say y if you read and understand the code."):
+            if not ask(f"Load the skill {f.name}? It's new or changed. Only say yes if you read and understand the code.", code):
                 print(f"  skipped skill {f.name} (it will ask again next time)")
                 continue
             trust(code)
@@ -249,16 +273,26 @@ def main():
         except Exception as e:
             print(f"  ⚠️  skipped skill {f.name}: {e}")
     chat = new_chat()
-    print(f"{NAME} wakes up ({MODEL}, {len(TOOLS)} tools). Type 'quit' to leave."
-          + (f" You can also click {NAME} on your desktop to chat." if pet_proc else ""))
+    tell_pet(do="idle")
+    if pet_proc:
+        print(f"{NAME} wakes up on your desktop ({MODEL}, {len(TOOLS)} tools). Chat with it in its little window.\n"
+              f"  This terminal shows what {NAME} is doing. To stop: right-click {NAME} > Go to sleep (or type quit here).")
+    else:
+        print(f"{NAME} wakes up ({MODEL}, {len(TOOLS)} tools). Type 'quit' to leave.")
     while True:
         try:
-            print("\nyou> ", end="", flush=True)
-            source, msg = next_line("you", "pet")
+            if not pet_alive():
+                print("\nyou> ", end="", flush=True)
+            source, msg = next_line("you", "pet", "gone")
+            if source == "gone":
+                print(f"({NAME}'s window closed. You can keep chatting here.)")
+                continue
             if msg is None:
+                if pet_alive():
+                    continue  # no terminal to type in: the pet is where you chat
                 break
-            if source == "pet":
-                print(f"{msg}   (typed into {NAME})")
+            if source == "pet" and msg != "quit":
+                print(f"\nyou> {msg}")
             msg = msg.strip()
             if msg.lower() in ("quit", "exit"):
                 break

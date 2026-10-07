@@ -126,7 +126,7 @@ def test_typed_chat_goes_to_gemlin(capsys):
     b.follow, b.chatting = True, True
     b.heard("  hello there  ")
     assert json.loads(capsys.readouterr().out) == {"say": "hello there"}
-    assert not b.chatting and b.mode == "think"
+    assert b.chatting and b.mode == "think"  # the chat box stays open for the next message
 
 
 def test_long_replies_page_with_a_footer():
@@ -145,3 +145,29 @@ def test_bye_closes_after_a_moment():
     for _ in range(60):
         b.step()
     assert b.done
+
+
+def test_questions_show_in_the_pet_and_answers_go_back(capsys):
+    b = brain()
+    b.follow = True
+    b.handle({"do": "ask", "id": 7, "question": "Install it?", "code": "def x(): pass"})
+    assert b.asking == {"id": 7, "question": "Install it?", "code": "def x(): pass"} and b.mode == "ask"
+    b.answer(True)
+    assert json.loads(capsys.readouterr().out) == {"answer": 7, "yes": True}
+    assert b.asking is None
+
+
+def test_answering_in_the_terminal_closes_the_question():
+    b = brain()
+    b.handle({"do": "ask", "id": 2, "question": "Move it?"})
+    b.handle({"do": "answered", "id": 1})  # some other question
+    assert b.asking
+    b.handle({"do": "answered", "id": 2})
+    assert b.asking is None
+
+
+def test_going_to_sleep_tells_gemlin(capsys):
+    b = brain()
+    b.follow = True
+    b.quit()
+    assert json.loads(capsys.readouterr().out) == {"quit": True} and b.done

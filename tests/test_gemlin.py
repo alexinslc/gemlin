@@ -105,7 +105,7 @@ def test_startup_asks_before_loading_new_or_changed_skills(home, monkeypatch, ca
     def run(*typed):
         answer(monkeypatch, *typed, None)  # None = the terminal closed, which ends the chat
         gemlin.main()
-        return capsys.readouterr().out.count("Load this skill")
+        return capsys.readouterr().out.count("Load the skill")
 
     assert run("y") == 1  # first run: asks, then trusts it
     assert "ping" in [t.__name__ for t in gemlin.TOOLS]
@@ -139,7 +139,35 @@ def test_look_code_from_the_creator_sets_name_and_personality(home, monkeypatch,
 
 def test_lines_typed_into_the_pet_reach_the_chat(home):
     class FakePet:
-        stdout = ['{"say": "hi from the desktop"}\n', "not json\n", '{"other": 1}\n', '{"say": "again"}\n']
+        stdout = ['{"say": "hi from the desktop"}\n', "not json\n", '{"other": 1}\n', '{"say": "again"}\n',
+                  '{"answer": 3, "yes": true}\n', '{"quit": true}\n']
     gemlin.read_pet(FakePet)
     assert gemlin.next_line("pet") == ("pet", "hi from the desktop")
     assert gemlin.next_line("pet") == ("pet", "again")
+    assert gemlin.next_line("answer") == ("answer", (3, True))
+    assert gemlin.next_line("pet") == ("pet", "quit")  # Go to sleep ends the chat
+    assert gemlin.next_line("gone") == ("gone", None)  # and then the pet is gone
+
+
+def test_questions_can_be_answered_in_the_pet(home, monkeypatch):
+    sent = []
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: sent.append(event))
+    gemlin.inbox.put(("answer", (gemlin.asked + 1, True)))
+    assert gemlin.ask("OK?", code="print(1)") is True
+    assert sent[0]["do"] == "ask" and sent[0]["code"] == "print(1)"
+    assert sent[-1] == {"do": "answered", "id": gemlin.asked}
+
+
+def test_a_late_answer_to_an_old_question_is_ignored(home, monkeypatch):
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    gemlin.inbox.put(("answer", (gemlin.asked, True)))  # left over from the previous question
+    gemlin.inbox.put(("answer", (gemlin.asked + 1, False)))
+    assert gemlin.ask("Move it?") is False
+
+
+def test_closed_terminal_waits_for_the_pet_instead_of_saying_no(home, monkeypatch):
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
+    monkeypatch.setattr(gemlin, "pet_alive", lambda: True)
+    gemlin.inbox.put(("you", None))
+    gemlin.inbox.put(("answer", (gemlin.asked + 1, True)))
+    assert gemlin.ask("Install it?") is True
