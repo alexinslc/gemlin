@@ -1,10 +1,12 @@
 """Offline tests: no API key or network needed. Run with: python -m pytest"""
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from google import genai  # noqa: E402
 from gemlin import cli, core as gemlin, paths  # noqa: E402
 
 
@@ -102,7 +104,7 @@ def test_startup_asks_before_loading_new_or_changed_skills(home, monkeypatch, ca
     skills.mkdir()
     (skills / "ping.py").write_text('def ping() -> str:\n    """Pong."""\n    return "pong"\n', encoding="utf-8")
     monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
-    monkeypatch.setattr(gemlin.genai, "Client", lambda **kw: None)
+    monkeypatch.setattr(genai, "Client", lambda **kw: None)
     monkeypatch.setattr(gemlin, "new_chat", lambda history=None: None)
 
     base = list(gemlin.TOOLS)
@@ -130,7 +132,7 @@ def test_pet_messages_wait_while_the_terminal_answers_a_question(home):
 
 def test_look_code_from_the_creator_sets_name_and_personality(home, monkeypatch, capsys):
     monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
-    monkeypatch.setattr(gemlin.genai, "Client", lambda **kw: None)
+    monkeypatch.setattr(genai, "Client", lambda **kw: None)
     monkeypatch.setattr(gemlin, "new_chat", lambda history=None: None)
     monkeypatch.setattr(gemlin, "NAME", gemlin.NAME)
     monkeypatch.setattr(gemlin, "PERSONA", gemlin.PERSONA)
@@ -258,7 +260,7 @@ def test_pet_crash_during_a_question_lets_the_terminal_answer(home, monkeypatch)
 
 def test_chat_ends_when_the_terminal_closed_and_then_the_pet_goes(home, monkeypatch, capsys):
     monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
-    monkeypatch.setattr(gemlin.genai, "Client", lambda **kw: None)
+    monkeypatch.setattr(genai, "Client", lambda **kw: None)
     monkeypatch.setattr(gemlin, "new_chat", lambda history=None: None)
     monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
     monkeypatch.setattr(gemlin, "pet_alive", lambda: True)  # still open when the terminal closes
@@ -428,3 +430,56 @@ def test_gemlin_never_starts_itself_from_the_current_folder(home, monkeypatch, t
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
     cli.main(["start"])
     assert launched == [str(paths.HOME)]
+
+
+def test_restart_from_the_pet_does_not_stop_itself(home, monkeypatch):
+    # The menu's "Think on this computer" runs `gemlin restart` as a child of the pet. Its stop must
+    # put Gemlin and the pet to sleep, but not the restart command itself (or nothing comes back).
+    import subprocess as sp
+    import psutil
+    pet_window = sp.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        monkeypatch.setattr(cli, "running", lambda: psutil.Process())  # pretend this test is Gemlin
+        stopped = []
+        monkeypatch.setattr(psutil.Process, "terminate", lambda self: stopped.append(self.pid))
+        monkeypatch.setattr(psutil.Process, "kill", lambda self: stopped.append(self.pid))
+        monkeypatch.setattr(psutil, "wait_procs", lambda procs, timeout=None: (procs, []))
+        cli.stop(None, quiet=True)
+        assert pet_window.pid in stopped and os.getpid() not in stopped
+    finally:
+        pet_window.kill()
+
+
+def test_google_trouble_says_what_happened_and_offers_local():
+    import httpx
+    from google.genai import errors
+    from gemlin import models
+    offline = models.google_trouble(httpx.ConnectError("no route"))
+    assert "couldn't reach Google" in offline and "Think on this computer" in offline
+    assert "error 503" in models.google_trouble(errors.ServerError(503, {"error": {"message": "down"}}))
+    assert "busy" in models.google_trouble(errors.ClientError(429, {"error": {"message": "slow down"}}))
+    assert models.google_trouble(errors.ClientError(400, {"error": {"message": "API key not valid"}})) is None
+    assert models.google_trouble(ValueError("mine")) is None
+
+
+def test_the_pet_hears_when_google_is_down(home, monkeypatch):
+    import httpx
+
+    class Down:
+        def send_message(self, text):
+            raise httpx.ConnectError("no route")
+
+    said = []
+    monkeypatch.setattr(gemlin, "read_terminal", lambda: None)
+    monkeypatch.setattr(genai, "Client", lambda **kw: None)
+    monkeypatch.setattr(gemlin, "new_chat", lambda history=None: Down())
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **msg: said.append(msg))
+    answer(monkeypatch, "hello?", None)
+    gemlin.main(desktop=False)
+    assert any(m.get("do") == "say" and "Think on this computer" in m.get("text", "") for m in said)
+
+
+def test_google_gives_up_quickly():
+    from gemlin import models
+    options = models.google_client("fake-key", timeout=10)._api_client._http_options
+    assert options.timeout == 10_000 and options.retry_options.attempts == 2

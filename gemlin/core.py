@@ -15,7 +15,6 @@ from pathlib import Path
 with suppress(ImportError):
     import readline  # noqa: F401  arrow keys + history at the you> prompt (Mac/Linux)
 import psutil
-from google import genai
 from google.genai import errors
 from . import develop, models, paths, pet
 
@@ -322,7 +321,7 @@ def load_skills():
 def check_key(key):
     """None if the key works, "offline" if Google couldn't be reached, otherwise what went wrong."""
     import httpx
-    tester = genai.Client(api_key=key)  # keep hold of it: the SDK closes a client nobody refers to
+    tester = models.google_client(key, timeout=10)  # keep hold of it: the SDK closes a client nobody refers to
     try:
         tester.models.get(model=MODEL)
     except errors.APIError as e:
@@ -510,16 +509,15 @@ def main(desktop=True, background=False):
         except models.LocalError as e:
             print(f"{NAME}> ({e})")
             tell_pet(do="say", text=f"Hmm. {e}")
-        except errors.APIError as e:
-            tell_pet(do="oops")
-            if e.code in (429, 503):
-                print(f"{NAME}> (rate limited) Wait ~30s, switch MODEL to gemma-4-31b-it, or run Gemma here: gemlin model local")
-            elif e.code == 500:
-                print(f"{NAME}> (Google hiccup, error 500) Just send that again.")
-            else:
-                print(KEY_HELP if "API key" in str(e) else f"{NAME}> (API error {e.code}) {e.message}")
         except Exception as e:
-            tell_pet(do="oops")
-            print(f"{NAME}> (something broke: {e!r})")
+            if trouble := models.google_trouble(e):  # Google is down or busy: say so, and offer local
+                print(f"{NAME}> ({trouble})")
+                tell_pet(do="say", text=trouble)
+            elif isinstance(e, errors.APIError):
+                tell_pet(do="oops")
+                print(KEY_HELP if "API key" in str(e) else f"{NAME}> (API error {e.code}) {e.message}")
+            else:
+                tell_pet(do="oops")
+                print(f"{NAME}> (something broke: {e!r})")
     tell_pet(do="bye")
     print(f"\n{NAME} goes back to sleep.")
