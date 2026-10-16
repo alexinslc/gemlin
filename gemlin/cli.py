@@ -68,16 +68,14 @@ def setup(args):
     ok = check_parts()
     from . import models
     key = paths.api_key()
-    found = models.find_server(start=False) if not key and models.source() != "local" else None
-    local = found and models.pick_model(found[2])
     if models.source() == "local":
         print("  ✓ Gemlin thinks with Gemma on this computer (gemlin model google switches to Google)")
-    elif local and ask_yes(f"  {found[0]} with {local} is on this computer. Let Gemlin think here (no key needed)?"):
-        models.use("local", local)
-        print(f"  ✓ Gemlin will think with {local} on this computer")
     elif key and not ask_yes("  You already have an API key saved. Replace it?", default=False):
         print("  ✓ Keeping your API key")
+    elif not key and pick_local():
+        pass
     else:
+        models.use("google")
         key = ask_key()
         if not key:
             print(f"\n  No key yet. Get a free one at {KEY_PAGE}, then run gemlin setup again.")
@@ -89,6 +87,31 @@ def setup(args):
         print("  When you're done, run the `gemlin look ...` command it gives you.")
     print("\nAll set! Wake Gemlin up with:  gemlin start" if ok else "\nFix the ✗ above, then run gemlin setup again.")
     return 0 if ok else 1
+
+
+def pick_local():
+    """Ask where Gemlin should think. True once it's set up on this computer."""
+    from . import models
+    found, apps = models.find_server(start=False), models.installed_apps()
+    seen = (f" ({found[0]} is running)" if found else f" (you have {' and '.join(apps)})" if apps else "")
+    print("\n  How should Gemlin think?\n"
+          f"    1. On this computer: free and private, with Gemma in LM Studio or Ollama{seen}\n"
+          "    2. With Google: Gemma on Google's servers (needs a free API key)")
+    try:
+        choice = input(f"  Pick 1 or 2 [{1 if found or apps else 2}] ").strip() or ("1" if found or apps else "2")
+    except EOFError:
+        return False
+    if choice != "1":
+        return False
+    print("  Looking for Gemma on this computer...")
+    try:
+        local = models.Local()
+    except models.LocalError as e:
+        print(f"  ✗ {e}\n  Using Google for now (gemlin model local switches later).")
+        return False
+    models.use("local", local.model)
+    print(f"  ✓ Gemlin will think with {local.model} on this computer ({local.server})")
+    return True
 
 
 def check_parts():

@@ -18,6 +18,24 @@ FONT, SMALL, CODE = ("Helvetica", 12), ("Helvetica", 9), ("Consolas", 10)
 UI = "Segoe UI" if sys.platform == "win32" else "TkDefaultFont"  # the system's own font for the chat
 ICONS = PACKAGE / "icons"
 
+TRAY_SIZES = (16, 20, 24, 32, 40, 48, 64)  # the artist's hand-drawn sizes in icons/windows
+
+def tray_size(dpi):
+    """The tray icon size Windows shows at this screen scale (16px at 100%), rounded up to art we have,
+    so it's drawn pixel for pixel instead of shrunk and blurry."""
+    want = round(16 * dpi / 96)
+    return next((s for s in TRAY_SIZES if s >= want), TRAY_SIZES[-1])
+
+def tray_image():
+    from PIL import Image
+    if sys.platform == "win32":
+        dpi = 96
+        with suppress(Exception):
+            import ctypes
+            dpi = ctypes.windll.user32.GetDpiForSystem()
+        return Image.open(ICONS / "windows" / f"gemlin-{tray_size(dpi)}.png")
+    return Image.open(ICONS / "linux" / "tray" / "gemlin-light-22.png")  # most Linux panels are dark
+
 def system_theme():
     """Light or dark, plus the accent color, so the chat looks like the rest of Windows."""
     dark, accent = False, "#0067c0"
@@ -109,7 +127,6 @@ class TkPet:
         Left-click opens the chat; right-click has the same menu as Gemlin itself."""
         try:
             import pystray
-            from PIL import Image
         except ImportError:
             return  # no tray: the right-click menu on Gemlin still has everything
         def entries():  # read fresh each time the tray menu opens
@@ -121,10 +138,21 @@ class TkPet:
                 tell = lambda icon, item, a=action: self.brain.events.put({"do": "menu", "action": a})  # noqa: E731
                 yield pystray.MenuItem(title, tell, checked=None if checked is None else (lambda item, c=checked: c),
                                        default=action == "chat")
-        image = Image.open(ICONS / ("windows/gemlin-32.png" if sys.platform == "win32" else "linux/tray/gemlin-dark-22.png"))
         with suppress(Exception):  # a desktop without a tray: carry on without it
-            self.tray = pystray.Icon("gemlin", image, self.brain.me["name"], menu=pystray.Menu(entries))
+            self.tray = pystray.Icon("gemlin", tray_image(), self.brain.me["name"], menu=pystray.Menu(entries))
             self.tray.run_detached()
+            self.tray_state = self.tray_now()
+
+    def tray_now(self):
+        return self.brain.me["name"], tuple(self.brain.menu())
+
+    def sync_tray(self):
+        """pystray builds its menu once: rebuild it when a checkmark (or Gemlin's name) changes."""
+        if self.tray and (now := self.tray_now()) != self.tray_state:
+            self.tray_state = now
+            with suppress(Exception):
+                self.tray.title = now[0]
+                self.tray.update_menu()
 
     def step(self):
         b = self.brain
@@ -135,6 +163,8 @@ class TkPet:
                     self.tray.stop()
             self.root.destroy()
             return
+        if b.tick % 25 == 0:  # once a second
+            self.sync_tray()
         if b.attention != self.attention:  # opened the Gemlin app, or picked Chat: come to the front
             self.attention = b.attention
             self.sync_chat()
@@ -252,9 +282,9 @@ class TkPet:
                 across.grid(row=1, column=0, sticky="ew")
             buttons = tk.Frame(frame, bg=t["bg"])
             buttons.pack(anchor="e", pady=(12, 0))
-            tk.Button(buttons, text="No", font=(UI, 10), width=8,
+            tk.Button(buttons, text=asking["no"] or "No", font=(UI, 10), width=8 if not asking["no"] else 0,
                       command=lambda: self.brain.answer(False)).pack(side="left", padx=(0, 8))
-            tk.Button(buttons, text="Yes, install it" if code else "Yes", font=(UI, 10), bg=t["accent"], fg="white",
+            tk.Button(buttons, text=asking["yes"] or ("Yes, install it" if code else "Yes"), font=(UI, 10), bg=t["accent"], fg="white",
                       activebackground=t["accent"], activeforeground="white", relief="flat", padx=12,
                       command=lambda: self.brain.answer(True)).pack(side="left")
             win.bind("<Escape>", lambda e: self.brain.answer(False))  # Yes needs a click, so nothing gets approved by accident

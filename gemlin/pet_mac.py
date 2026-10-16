@@ -333,9 +333,10 @@ class MacPet(NSObject):
                 text.setString_(code)
                 scroll.setDocumentView_(text)
                 view.addSubview_(scroll)
-            no = AppKit.NSButton.buttonWithTitle_target_action_("No", self, "answerNo:")
+            no = AppKit.NSButton.buttonWithTitle_target_action_(asking["no"] or "No", self, "answerNo:")
             no.setKeyEquivalent_("\x1b")  # Esc means no. Yes needs a click, so nothing gets approved by accident
-            yes = AppKit.NSButton.buttonWithTitle_target_action_("Yes, install it" if code else "Yes", self, "answerYes:")
+            yes = AppKit.NSButton.buttonWithTitle_target_action_(
+                asking["yes"] or ("Yes, install it" if code else "Yes"), self, "answerYes:")
             right = w - 16
             for button in (yes, no):  # right to left: Yes, then No
                 button.sizeToFit()
