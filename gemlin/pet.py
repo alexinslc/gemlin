@@ -156,6 +156,9 @@ class Sprites:
 
     def frame(self, view="front", body="stand", eyes="open", mouth="closed", left=False):
         key = (view, body, eyes, mouth, left)
+        if view == "react" and key not in self.frames:  # a whole-character pose (see REACTIONS), no hat
+            self.frames[key] = [[self.palette.get(px, px) if px else None for px in row]
+                                for row in read_png(ART / "reactions" / f"{body}.png")]
         if key not in self.frames:
             rows = [[None] * 64 for _ in range(64)]
             for slot, name in zip(self.slots, (body, eyes, mouth, "still")):
@@ -175,6 +178,10 @@ def write_manifest():
 
 # ---------- what the pet does ----------
 
+# Whole-character poses from the artist (gemlin/art/reactions), shown instead of the layered pet:
+# falling while you hold or drop it, landed + recovering when it hits the floor, celebrate for good
+# news, sleeping when it says goodbye, curious while it thinks. Ticks = how long each one lasts.
+REACTIONS = {"landed": 9, "recovering": 24, "celebrate": 40}
 SCALE, SIZE, HOP = 2, 128, 12  # 64px art shown at 2x, with room above it to hop
 TICK, SPEED = 40, 1.5          # 25 updates a second; pixels walked per update
 INK, PAPER, MUTED = "#0f1b27", "#fff4de", "#7a7466"  # outline and cream from the art
@@ -222,7 +229,8 @@ class Brain:
       x, y:        where the pet's window goes (top-left, screen pixels)
       bubble:      (text, footer) for the speech bubble, or None
       chatting:    whether the chat box should be open
-      asking:      {"id", "question", "code"} while a yes/no question waits, else None
+      asking:      {"id", "question", "code", "yes", "no"} while a yes/no question waits, else None
+                   (yes / no: button labels, when they aren't plain Yes and No)
       needs_key:   the chat box is for pasting an API key (hidden text, "Get a free key" button)
       button:      (label, url) for the button under the chat box
       look_version: goes up when the look changes, so windows rebuild their sprites
@@ -240,6 +248,7 @@ class Brain:
         self.needs_key, self.button, self.look_version, self.attention = False, ("Customize me", CREATOR), 0, 0
         self.chatting = follow  # with gemlin.py running, the chat box is open from the start
         self.bubble, self.frame, self.lift = None, None, 0
+        self.reaction, self.reaction_until, self.fell_from = None, 0, None
         if follow:
             threading.Thread(target=self.listen, daemon=True).start()
         self.say(f"Hi, I'm {me['name']}! " + ("What can I do for you?" if follow else "Click me to chat."), seconds=6)
@@ -254,12 +263,13 @@ class Brain:
     def handle(self, event):
         do = event.get("do") if isinstance(event, dict) else None
         if do == "think":
-            self.set_mode("think", "...")
+            self.set_mode("think", str(event.get("text") or "..."))
         elif do == "tool":
             self.set_mode("think", f"using {str(event.get('name', 'a tool')).replace('_', ' ')}...")
         elif do == "ask":
             self.asking = {"id": event.get("id"), "question": str(event.get("question") or "Is that OK?"),
-                           "code": event.get("code") if isinstance(event.get("code"), str) else None}
+                           "code": event.get("code") if isinstance(event.get("code"), str) else None,
+                           "yes": str(event.get("yes") or ""), "no": str(event.get("no") or "")}
             self.set_mode("ask")
         elif do == "answered":  # answered in the terminal instead
             if self.asking and self.asking["id"] == event.get("id"):
@@ -280,16 +290,24 @@ class Brain:
             self.button = ("Get a free key", str(event.get("url") or "https://aistudio.google.com/apikey"))
         elif do == "key_ok":
             self.needs_key, self.button = False, ("Customize me", CREATOR)
+            self.react("celebrate")
+        elif do == "celebrate":
+            self.react("celebrate")
         elif do == "menu":  # picked in the Windows tray, which runs in its own thread
             if page := self.menu_action(event.get("action")):
                 webbrowser.open(page)
         elif do == "look":  # a new look was saved: dress up
             self.me, self.art = load_settings(), Sprites(load_settings())
             self.look_version += 1
+            self.react("celebrate")
 
     def set_mode(self, mode, status=None):
         self.mode, self.status, self.pages, self.hide_at = mode, status, [], None
         self.bubble = (status, "") if status else None
+
+    def react(self, name):
+        """Strike a pose for a moment (see REACTIONS); the next one in line follows on its own."""
+        self.reaction, self.reaction_until = name, self.tick + REACTIONS[name]
 
     def say(self, text, seconds=None):
         self.mode, self.pages, self.seconds = "talk", pages(text), seconds
@@ -460,8 +478,14 @@ class Brain:
         if self.grab:
             pass  # held by the mouse
         elif self.y < self.floor:  # dropped: fall back down
+            if self.fell_from is None:
+                self.fell_from = self.y
             self.fall += 1.5
             self.y = min(self.floor, self.y + self.fall)
+            if self.y >= self.floor:
+                if self.floor - self.fell_from > 40:  # a real fall: bonk!
+                    self.react("landed")
+                self.fell_from = None
         elif self.mode == "wander" and self.wander and not self.chatting:
             if self.target is None:
                 self.rest -= 1
@@ -477,6 +501,18 @@ class Brain:
 
     def pick_frame(self, walking):
         anim = self.tick // 3  # change pose about 8 times a second
+        if self.reaction and self.tick >= self.reaction_until:  # bonk, then woozy, then back to normal
+            if self.reaction == "landed":
+                self.react("recovering")
+            else:
+                self.reaction = None
+        held = self.grab and self.grab[4]
+        pose = ("falling" if held or self.y < self.floor else "sleeping" if self.leaving else self.reaction
+                or ("curious" if self.mode == "think" and not walking else None))
+        if pose:
+            self.frame, self.lift = ("react", pose), 0
+            self.think_dots()
+            return
         if self.tick >= self.blink_at + 4:
             self.blink_at = self.tick + random.randint(60, 150)
         eyes = "blink" if self.tick >= self.blink_at else "open"
@@ -487,6 +523,9 @@ class Brain:
             talking = self.mode == "talk" and self.tick < self.talk_until and anim % 2
             self.frame = ("front", "stand", eyes, "talk_1" if talking else "closed", False)
             self.lift = HOP * (anim % 4 < 2) if self.mode == "ask" else 0  # hop for attention
+        self.think_dots()
+
+    def think_dots(self):
         if self.mode == "think" and self.status and self.tick % 12 == 0:  # make the dots dance
             dots = 1 + self.tick // 12 % 3
             self.bubble = (self.status.removesuffix("...") + "." * dots + " " * (3 - dots), "")

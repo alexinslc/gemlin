@@ -25,7 +25,7 @@ The installer ([install.sh](site/install.sh), [install.ps1](site/install.ps1)) u
 
 Then:
 
-1. **Get a key, in Gemlin's window.** The first time, Gemlin walks you through getting a free Gemini API key: click **Get a free key** (Google AI Studio opens), create one, and paste it into Gemlin's chat box. The box hides what you paste. (`gemlin setup` does the same from the terminal.)
+1. **Pick how Gemlin thinks, in its window.** The first time, Gemlin asks: **On this computer** (free and private, with Gemma in LM Studio or Ollama, which it finds and starts for you) or **With Google** (Gemma on Google's servers). Pick Google and it walks you through getting a free Gemini API key: click **Get a free key** (Google AI Studio opens), create one, and paste it into Gemlin's chat box. The box hides what you paste. (`gemlin setup` asks the same from the terminal.)
 2. **Make it yours.** Click **Customize me** under its chat box (or go to [gemlin.dev/create](https://gemlin.dev/create/)), pick a name, personality, hat and colors, click Copy, and paste the code into Gemlin's chat window.
 
 To update: *Check for updates…* in Gemlin's menu, `gemlin update`, or run the install line again. To remove Gemlin: `gemlin uninstall`, then `uv tool uninstall gemlin`. Your settings and skills are in `~/.gemlin` if you want to delete those too.
@@ -68,15 +68,15 @@ Gemlin can think with Gemma running **on your computer** instead of Google's ser
 2. Switch Gemlin over, any one of these ways:
    - right-click Gemlin (or its menu bar / tray icon) → **Think on this computer**
    - `gemlin model local` (add `--name google/gemma-4-12b` to pick a model)
-   - type `local` when Gemlin asks for a key
+   - pick **On this computer** the first time Gemlin asks how to think (or type `local` when it asks for a key)
 
-Gemlin starts LM Studio's server for you if it's installed. The first answer takes a little longer while the model loads. `gemlin model` shows where Gemlin thinks and which local models it found; `gemlin model google` switches back.
+Gemlin finds LM Studio, Ollama, Jan, or a llama.cpp server running on this computer, and starts LM Studio's or Ollama's server for you if it's installed but off. The first answer takes a little longer while the model loads. `gemlin model` shows where Gemlin thinks and which local models it found; `gemlin model google` switches back.
 
 ## The `gemlin` command
 
 | Command | What it does |
 | --- | --- |
-| `gemlin setup` | Checks Python and the pieces Gemlin needs, and saves your API key |
+| `gemlin setup` | Checks Python and the pieces Gemlin needs, and asks where Gemlin thinks (this computer, or Google with your API key) |
 | `gemlin start` | Wakes Gemlin up on your desktop. It keeps running after you close the terminal |
 | `gemlin stop` | Puts it to sleep (so does right-click → *Go to sleep*) |
 | `gemlin restart` | Stop, then start. Use it after changing Gemlin's code or skills |
@@ -181,7 +181,7 @@ Key dependencies: the official [`google-genai`](https://googleapis.github.io/pyt
 ## Troubleshooting
 
 - **`gemlin: command not found`**: open a new terminal after installing. Installed from source? Activate the virtual environment first (`source .venv/bin/activate`, or `.venv\Scripts\activate` on Windows), in the gemlin folder.
-- **"rate limited" or Google errors**: wait about 30 seconds, or switch `MODEL` to `gemma-4-31b-it`, or skip Google entirely: `gemlin model local` (see [Gemma on your own computer](#gemma-on-your-own-computer)). Each skill Gemlin uses counts as an extra request.
+- **"rate limited" or Google errors**: Gemlin tells you in its bubble when Google is down or busy. Wait about 30 seconds, or switch `MODEL` to `gemma-4-31b-it`, or skip Google entirely: `gemlin model local` (see [Gemma on your own computer](#gemma-on-your-own-computer)). Each skill Gemlin uses counts as an extra request.
 - **"Missing or invalid API key"**: run `gemlin setup` again.
 - **Gemlin didn't appear**: `gemlin logs` shows why. `gemlin status` says whether it's awake. `gemlin setup` checks for the desktop window pieces: on a Mac, `pip install -e .` installs them; on Linux, `sudo apt install python3-tk`.
 - **API error 400 mentioning thinking**: comment out the `thinking_config=` line in `new_chat()` in `gemlin/core.py`.

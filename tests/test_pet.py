@@ -151,7 +151,7 @@ def test_questions_show_in_the_pet_and_answers_go_back(capsys):
     b = brain()
     b.follow = True
     b.handle({"do": "ask", "id": 7, "question": "Install it?", "code": "def x(): pass"})
-    assert b.asking == {"id": 7, "question": "Install it?", "code": "def x(): pass"} and b.mode == "ask"
+    assert b.asking == {"id": 7, "question": "Install it?", "code": "def x(): pass", "yes": "", "no": ""} and b.mode == "ask"
     b.answer(True)
     assert json.loads(capsys.readouterr().out) == {"answer": 7, "yes": True}
     assert b.asking is None
@@ -232,3 +232,77 @@ def test_opening_the_app_while_awake_brings_up_the_chat(tmp_path, monkeypatch):
     for _ in range(12):
         b.step()
     assert b.chatting and b.attention == 1 and not (tmp_path / "show").exists()
+
+
+@pytest.mark.parametrize("name", ["falling", "landed", "recovering", "celebrate", "sleeping", "curious"])
+def test_reactions_are_recolored_whole_characters(name):
+    sprites = pet.Sprites(pet.clean({"colors": {"body": "#123456"}}))
+    rows = sprites.frame("react", name)
+    assert len(rows) == 64 and all(len(row) == 64 for row in rows)
+    assert not any(px in pet.KEY_COLORS for row in rows for px in row if px)
+    assert any(px == (0x12, 0x34, 0x56) for row in rows for px in row)
+
+
+def test_dropping_gemlin_falls_bonks_and_recovers():
+    b = brain()
+    b.say("hi", seconds=0.1)
+    b.pick_up(10, 10)
+    b.drag(10, -200)  # lifted way up
+    b.step()
+    assert b.frame == ("react", "falling")
+    b.drop()
+    poses = []
+    for _ in range(80):
+        b.step()
+        poses.append(b.frame[1] if b.frame[0] == "react" else "normal")
+    seen = [p for i, p in enumerate(poses) if i == 0 or poses[i - 1] != p]
+    assert seen == ["falling", "landed", "recovering", "normal"]
+
+
+def test_a_little_drop_is_not_a_bonk():
+    b = brain()
+    b.pick_up(10, 10)
+    b.drag(10, -20)
+    b.drop()
+    for _ in range(10):
+        b.step()
+    assert b.reaction is None
+
+
+def test_thinking_looks_curious_and_good_news_celebrates():
+    b = brain()
+    b.handle({"do": "think", "text": "looking for Gemma on this computer..."})
+    b.step()
+    assert b.frame == ("react", "curious") and b.bubble[0].startswith("looking for Gemma")
+    b.handle({"do": "key_ok"})
+    b.set_mode("wander")
+    b.step()
+    assert b.frame == ("react", "celebrate")
+
+
+def test_saying_goodbye_looks_sleepy():
+    b = brain()
+    b.sleep()
+    b.step()
+    assert b.frame == ("react", "sleeping")
+
+
+def test_questions_can_have_their_own_buttons():
+    b = brain()
+    b.handle({"do": "ask", "id": 1, "question": "How should I think?", "yes": "On this computer", "no": "With Google"})
+    assert (b.asking["yes"], b.asking["no"]) == ("On this computer", "With Google")
+
+
+@pytest.mark.parametrize("dpi, size", [(96, 16), (120, 20), (144, 24), (168, 32), (192, 32), (288, 48), (480, 64)])
+def test_the_tray_uses_hand_drawn_art_at_every_screen_scale(dpi, size):
+    pet_tk = pytest.importorskip("gemlin.pet_tk")
+    assert pet_tk.tray_size(dpi) == size
+    assert (pet_tk.ICONS / "windows" / f"gemlin-{size}.png").exists()
+
+
+def test_every_icon_the_apps_use_is_there():
+    from gemlin import paths
+    icons = paths.PACKAGE / "icons"
+    for name in ("macos/GemlinTemplate.png", "macos/GemlinTemplate@2x.png", "macos/Gemlin.icns",
+                 "windows/Gemlin.ico", "linux/tray/gemlin-light-22.png", "gemlin-512.png"):
+        assert (icons / name).exists(), name

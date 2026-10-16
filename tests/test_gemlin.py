@@ -236,7 +236,7 @@ def test_going_to_sleep_during_a_question_says_no_and_quits(home, monkeypatch):
     monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
     gemlin.inbox.put(("pet", "can you hurry?"))  # chat while the question is open: kept for later
     gemlin.inbox.put(("pet", "quit"))
-    assert gemlin.ask("Install it?") is False
+    assert gemlin.ask("Install it?") is None  # nobody said, so no
     assert gemlin.next_line("pet") == ("pet", "can you hurry?")
     assert gemlin.next_line("pet") == ("pet", "quit")  # the main loop still sees it and stops
 
@@ -245,7 +245,7 @@ def test_pet_crash_during_a_question_with_no_terminal_says_no(home, monkeypatch)
     monkeypatch.setattr(gemlin, "tell_pet", lambda **event: None)
     monkeypatch.setattr(gemlin, "terminal_open", False)
     gemlin.inbox.put(("gone", None))
-    assert gemlin.ask("Move it?") is False
+    assert gemlin.ask("Move it?") is None  # nobody said, so no
     assert gemlin.next_line("gone") == ("gone", None)
 
 
@@ -483,3 +483,86 @@ def test_google_gives_up_quickly():
     from gemlin import models
     options = models.google_client("fake-key", timeout=10)._api_client._http_options
     assert options.timeout == 10_000 and options.retry_options.attempts == 2
+
+
+@pytest.fixture
+def fake_local(monkeypatch):
+    """A computer with (or without) LM Studio running Gemma, without touching the real one."""
+    from gemlin import models
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    state = {"server": ("LM Studio", "http://localhost:1234/v1", ["google/gemma-4-12b"]), "apps": ["LM Studio"]}
+    monkeypatch.setattr(models, "running_server", lambda: state["server"])
+    monkeypatch.setattr(models, "installed_apps", lambda: state["apps"])
+    monkeypatch.setattr(models, "start_servers", lambda: None)
+    monkeypatch.setattr(models.time, "sleep", lambda s: None)
+    return state
+
+
+def test_first_run_asks_how_to_think_before_any_key(home, monkeypatch, fake_local):
+    from gemlin import models
+    questions, said = [], []
+    monkeypatch.setattr(gemlin, "ask", lambda q, code=None, yes="", no="": questions.append((q, yes, no)) or True)
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **msg: said.append(msg))
+    monkeypatch.setattr(gemlin, "get_key", lambda: pytest.fail("asked for a key"))
+    brain = gemlin.wake_brain()
+    assert questions[0][1:] == ("On this computer", "With Google") and "LM Studio running" in questions[0][0]
+    assert isinstance(brain, models.Local) and models.source() == "local"
+    assert paths.config()["local_model"] == "google/gemma-4-12b"
+    assert {"do": "celebrate"} in said
+
+
+def test_choosing_google_goes_on_to_the_key(home, monkeypatch, fake_local):
+    from gemlin import models
+    monkeypatch.setattr(gemlin, "ask", lambda q, code=None, yes="", no="": False)
+    monkeypatch.setattr(gemlin, "get_key", lambda: None)
+    assert gemlin.wake_brain() is None  # (no key pasted in this test)
+    assert models.chosen() and models.source() == "google"
+
+
+def test_local_trouble_is_explained_and_asked_again(home, monkeypatch, fake_local):
+    fake_local["server"], fake_local["apps"] = None, []
+    questions = []
+    answers = iter([True, False])  # try this computer, then give up and use Google
+    monkeypatch.setattr(gemlin, "ask", lambda q, code=None, yes="", no="": questions.append(q) or next(answers))
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **msg: None)
+    assert gemlin.choose_brain() == "google"
+    assert "didn't spot LM Studio or Ollama" in questions[0]
+    assert "couldn't find LM Studio or Ollama" in questions[1] and "lmstudio.ai" in questions[1]
+
+
+def test_going_to_sleep_instead_of_choosing_chooses_nothing(home, monkeypatch, fake_local):
+    from gemlin import models
+    monkeypatch.setattr(gemlin, "ask", lambda q, code=None, yes="", no="": None)
+    monkeypatch.setattr(gemlin, "tell_pet", lambda **msg: None)
+    assert gemlin.choose_brain() is None and not models.chosen()
+
+
+def test_saved_key_or_earlier_choice_skips_the_question(home, monkeypatch, fake_local):
+    from gemlin import models
+    monkeypatch.setattr(gemlin, "choose_brain", lambda: pytest.fail("asked again"))
+    paths.save_api_key("a-key")
+    assert isinstance(gemlin.wake_brain(), models.Google)
+
+
+def test_installed_but_stopped_apps_get_started(home, monkeypatch, fake_local):
+    from gemlin import models
+    started = []
+    fake_local["server"] = None
+    monkeypatch.setattr(models, "start_servers", lambda: started.append(True) or fake_local.update(
+        server=("Ollama", "http://localhost:11434/v1", ["gemma4:e4b"])))
+    assert models.find_server()[0] == "Ollama" and started
+    assert models.find_server(start=False)[0] == "Ollama"
+    fake_local["server"], fake_local["apps"] = None, ["Ollama"]
+    monkeypatch.setattr(models, "start_servers", lambda: None)  # won't come up
+    with pytest.raises(models.LocalError, match="found Ollama but couldn't start it"):
+        models.Local()
+
+
+def test_setup_can_pick_this_computer(home, monkeypatch, fake_local):
+    from gemlin import models
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cli, "check_parts", lambda: True)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt="": pytest.fail("asked for a key"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "" if "Pick" in prompt else "n")  # Enter = 1 here
+    assert cli.main(["setup"]) == 0
+    assert models.source() == "local"
