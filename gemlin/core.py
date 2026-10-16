@@ -15,7 +15,6 @@ from pathlib import Path
 with suppress(ImportError):
     import readline  # noqa: F401  arrow keys + history at the you> prompt (Mac/Linux)
 import psutil
-from google import genai
 from google.genai import errors
 from . import develop, models, paths, pet
 
