@@ -202,7 +202,7 @@ footer a { color: var(--muted); }
         <p class="muted" data-os-only="mac">On a Mac, open <b>Terminal</b> (press ⌘ Space and type Terminal). It installs Gemlin with its own Python, so nothing else on your computer changes. <a href="/install.sh">Read the script</a>.</p>
         <p class="muted" data-os-only="windows" hidden>Open <b>PowerShell</b> from the Start menu. It installs Gemlin with its own Python, so nothing else on your computer changes. <a href="/install.ps1">Read the script</a>.</p></div></li>
       <li><div class="body"><h3>Say hi</h3>
-        <p class="muted">Gemlin wakes up on your desktop with its chat window open, and you can close the terminal. The first time, it helps you get a free Google API key right there: click <b>Get a free key</b>, then paste the key into its chat box. The installer also adds the Gemlin app and asks whether Gemlin should wake up whenever you log in. No Google account, or want everything offline? With <a href="https://lmstudio.ai">LM Studio</a> or <a href="https://ollama.com">Ollama</a> and a Gemma model, type <code>local</code> instead of a key.</p></div></li>
+        <p class="muted">Gemlin wakes up on your desktop with its chat window open, and you can close the terminal. The first time, it asks how it should think: <b>On this computer</b>, free and private with Gemma in <a href="https://lmstudio.ai">LM Studio</a> or <a href="https://ollama.com">Ollama</a> (Gemlin finds them and starts them for you), or <b>With Google</b>, where it helps you get a free API key right there: click <b>Get a free key</b>, then paste the key into its chat box. The installer also adds the Gemlin app and asks whether Gemlin should wake up whenever you log in.</p></div></li>
       <li><div class="body"><h3>Make it yours</h3>
         <p class="muted">Click <b>Customize me</b> under Gemlin's chat box (or open <a href="/create/">the creator</a>), pick a name, personality, hat and colors, then paste the code back into its chat.</p></div></li>
     </ol>
@@ -245,7 +245,7 @@ gemlin start<button type="button">Copy</button></div>
           <tr><td><code>gemlin restart</code></td><td>Stop, then start, after you change its skills or code</td></tr>
           <tr><td><code>gemlin status</code></td><td>Is it awake? Is your key saved?</td></tr>
           <tr><td><code>gemlin autostart on</code></td><td>Wake up whenever you log in (<code>off</code> turns it off)</td></tr>
-          <tr><td><code>gemlin setup</code></td><td>Check everything and save your API key from the terminal</td></tr>
+          <tr><td><code>gemlin setup</code></td><td>Check everything and pick where Gemlin thinks (this computer, or Google with your API key)</td></tr>
           <tr><td><code>gemlin look CODE</code></td><td>Use a look from the creator (or just paste the code into Gemlin's chat)</td></tr>
           <tr><td><code>gemlin skills</code></td><td>List its skills; <code>skills add FILE</code> adds one someone shared</td></tr>
           <tr><td><code>gemlin develop IDEA</code></td><td>Build a new skill with Gemma's help</td></tr>
@@ -295,7 +295,7 @@ gemlin start<button type="button">Copy</button></div>
       <p class="muted">The theme is <em>AI belongs to everyone</em>. You'll get Gemlin running, give it a personality, and teach it a new skill of your own. No AI experience needed.</p>
       <ul>
         <li>Bring a laptop (Mac, Windows or Linux). The installer takes care of Python.</li>
-        <li>Have a Google account ready for your free API key.</li>
+        <li>Have a Google account ready for your free API key, or LM Studio / Ollama with a Gemma model to think on your laptop.</li>
         <li>Curious what to build? Wifi info, screen time, git repos with uncommitted changes…</li>
       </ul>
     </div>

@@ -10,9 +10,11 @@ Pick with `gemlin model local` / `gemlin model google`, or "Think on this comput
 """
 import inspect
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -22,9 +24,13 @@ from types import SimpleNamespace
 
 from . import paths
 
-SERVERS = {"LM Studio": "http://localhost:1234/v1", "Ollama": "http://localhost:11434/v1"}
+SERVERS = {"LM Studio": "http://localhost:1234/v1", "Ollama": "http://localhost:11434/v1",
+           "Jan": "http://localhost:1337/v1", "llama.cpp": "http://localhost:8080/v1"}
 PREFERRED = ("gemma-4-12b", "gemma-4-e4b", "gemma-4-26b", "gemma4", "gemma-4", "gemma")  # first match wins
-LMS = Path.home() / ".lmstudio" / "bin" / "lms"
+EXE = ".exe" if sys.platform == "win32" else ""
+LMS = Path.home() / ".lmstudio" / "bin" / f"lms{EXE}"
+OLLAMA_APP = Path("/Applications/Ollama.app")
+OLLAMA_WIN = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
 
 
 class LocalError(Exception):
@@ -36,16 +42,43 @@ def source():
     return "local" if paths.config().get("brain") == "local" else "google"
 
 
+def chosen():
+    """Whether you've picked where Gemlin thinks yet (the first-run question)."""
+    return "brain" in paths.config()
+
+
 def use(where, model=None):
     paths.save_config(brain=where, **({"local_model": model} if model else {}))
 
 
 # ---------- Google ----------
 
+def google_client(key, timeout=30):
+    """A Gemini client that gives up quickly: if Google's servers are down, Gemlin says so in
+    seconds instead of retrying for a minute while you stare at a thinking pet."""
+    from google import genai
+    from google.genai import types
+    return genai.Client(api_key=key, http_options=types.HttpOptions(
+        timeout=timeout * 1000, retry_options=types.HttpRetryOptions(attempts=2, initial_delay=1, max_delay=2)))
+
+
+def google_trouble(e):
+    """What to tell you when Google's servers fail, or None if it's not that kind of failure."""
+    import httpx
+    from google.genai import errors
+    if isinstance(e, (httpx.TransportError, OSError)):
+        why = "I couldn't reach Google's Gemini servers (no internet, or they're not answering)."
+    elif isinstance(e, errors.APIError) and (e.code in (429, 503) or (e.code or 0) >= 500):
+        why = ("Google's Gemini servers are busy right now (too many requests)." if e.code == 429
+               else f"Google's Gemini servers are having trouble right now (error {e.code}).")
+    else:
+        return None
+    return f"{why} Try again in a bit, or run Gemma on this computer: Think on this computer in my menu (or gemlin model local)."
+
+
 class Google:
     def __init__(self, key, model):
-        from google import genai
-        self.client, self.model = genai.Client(api_key=key), model
+        self.client, self.model = google_client(key), model
         self.label = f"{model} on Google"
 
     def new_chat(self, system, tools, history=None):
@@ -73,17 +106,52 @@ def get_json(url, body=None, timeout=5):
         return json.loads(response.read().decode("utf-8"))
 
 
-def find_server(start=True):
-    """(name, url, model ids) for LM Studio or Ollama running here, or None. If LM Studio is
-    installed but its server is off, start it."""
+def running_server():
+    """(name, url, model ids) for the first local model server that answers, or None."""
     for name, url in SERVERS.items():
-        with suppress(OSError, ValueError):
+        with suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
             return name, url, [m["id"] for m in get_json(f"{url}/models", timeout=1.5).get("data", [])]
-    if start and LMS.exists():
-        subprocess.run([str(LMS), "server", "start"], capture_output=True, timeout=30)
-        for _ in range(10):
+    return None
+
+
+def lms():
+    return str(LMS) if LMS.exists() else shutil.which("lms")
+
+
+def ollama():
+    return shutil.which("ollama") or (str(OLLAMA_WIN) if OLLAMA_WIN.exists() else None)
+
+
+def installed_apps():
+    """The local model apps on this computer that Gemlin knows how to start."""
+    return [name for name, here in (("LM Studio", lms()), ("Ollama", ollama() or OLLAMA_APP.exists())) if here]
+
+
+def start_servers():
+    """Start LM Studio's or Ollama's server, if they're installed but off. They keep running after."""
+    if path := lms():
+        with suppress(OSError, subprocess.SubprocessError):
+            subprocess.run([path, "server", "start"], capture_output=True, timeout=30)
+    if OLLAMA_APP.exists() and sys.platform == "darwin":
+        subprocess.run(["open", "-g", "-a", str(OLLAMA_APP)], capture_output=True)  # -g: stay in the background
+    elif path := ollama():
+        detach = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+                  if sys.platform == "win32" else {"start_new_session": True})
+        with suppress(OSError):
+            subprocess.Popen([path, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, **detach)
+
+
+def find_server(start=True):
+    """(name, url, model ids) for a local model server (LM Studio, Ollama, Jan, llama.cpp), or None.
+    With start, an installed LM Studio or Ollama that's off gets started first."""
+    if found := running_server():
+        return found
+    if start and installed_apps():
+        start_servers()
+        for _ in range(30):  # give it up to 15 seconds to come up
             time.sleep(0.5)
-            if found := find_server(start=False):
+            if found := running_server():
                 return found
     return None
 
@@ -158,12 +226,16 @@ class Local:
     def __init__(self, model=None):
         found = find_server()
         if not found:
-            raise LocalError("I can't find Gemma on this computer. Install LM Studio (lmstudio.ai) or "
-                             "Ollama (ollama.com), download a Gemma model, and start it. Then try again.")
+            apps = installed_apps()
+            raise LocalError(f"I found {' and '.join(apps)} but couldn't start it. Open it, start its server, "
+                             "and try again." if apps else
+                             "I couldn't find LM Studio or Ollama on this computer. Install one (LM Studio, at "
+                             "lmstudio.ai, is the easiest), download a Gemma model in it, then try again.")
         self.server, self.url, ids = found
         self.model = pick_model(ids, model or paths.config().get("local_model"))
         if not self.model:
-            raise LocalError(f"{self.server} is running but has no models. Download Gemma in it first.")
+            raise LocalError(f"{self.server} is running but has no models yet. Download a Gemma model in it "
+                             "(search for Gemma), then try again.")
         self.label = f"{self.model} on this computer ({self.server})"
 
     def complete(self, messages, tools=None):

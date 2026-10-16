@@ -15,7 +15,6 @@ from pathlib import Path
 with suppress(ImportError):
     import readline  # noqa: F401  arrow keys + history at the you> prompt (Mac/Linux)
 import psutil
-from google import genai
 from google.genai import errors
 from . import develop, models, paths, pet
 
@@ -108,12 +107,13 @@ def tell_pet(**event):  # think, tool, ask, answered, idle, say, oops, bye
             pet_proc.stdin.write(json.dumps(event) + "\n")
             pet_proc.stdin.flush()
 
-def ask(question, code=None):
-    """Yes or no from the owner: in the pet's window (which shows any code), or y in the terminal."""
+def ask(question, code=None, yes="", no=""):
+    """Yes or no from the owner: in the pet's window (which shows any code), or y in the terminal.
+    yes / no: other words for the two buttons, for questions that aren't really yes or no."""
     global asked, terminal_open
     asked += 1
-    tell_pet(do="ask", id=asked, question=question, code=code)
-    print(f"  {question} [y/N] ", end="", flush=True)
+    tell_pet(do="ask", id=asked, question=question, code=code, yes=yes, no=no)
+    print(f"  {question} " + (f"[y = {yes}, n = {no}] " if yes else "[y/N] "), end="", flush=True)
     held = []  # chat messages that arrive while we wait: they're answered afterwards
     while True:
         source, answer = next_line("you", "answer", "pet", "gone")
@@ -123,7 +123,7 @@ def ask(question, code=None):
         if shutting_down(source, answer):
             held.append((source, answer))  # the main loop sees it afterwards and shuts down
             if source == "pet" or not terminal_open:
-                yes = False  # nobody left to answer, so the answer is no
+                yes = None  # nobody left to answer, so the answer is no (None: nobody said)
                 break
             continue  # the pet closed, but the terminal can still answer
         if source == "you":
@@ -262,6 +262,7 @@ def learn_skill(name: str, description: str, code: str) -> str:
     (SKILLS / f"{name}.py").write_text(code, encoding="utf-8")
     trust(code)
     needs_reload = True  # the main loop rebuilds the chat so the new tool shows up
+    tell_pet(do="celebrate")
     return f"Installed {name}. You can call it on your next turn."
 
 def new_chat(history=None):  # Gemma, with its personality and every tool and skill (see models.py)
@@ -279,10 +280,38 @@ def wake_brain():
                 return None
             print("  Using Gemma on Google for now.")
             tell_pet(do="say", text=f"{e} I'll think on Google's servers for now.")
+    if not paths.api_key() and not models.chosen() and choose_brain() == "local":
+        return wake_brain()
     key = paths.api_key() or get_key()  # no key yet? Gemlin coaches you through getting one
     if key == "local":  # chose Gemma on this computer instead
         return wake_brain()
     return models.Google(key, MODEL) if key else None
+
+def choose_brain():
+    """First time: ask where to think, before anything about keys. "local", "google", or None."""
+    found, apps = models.find_server(start=False), models.installed_apps()
+    seen = (f"I can see {found[0]} running here." if found else f"You have {' and '.join(apps)}." if apps
+            else "I didn't spot LM Studio or Ollama yet, but they're free to install.")
+    question = (f"Hi! I'm {NAME}. How should I think?\n\n"
+                f"On this computer: free and private, with Gemma in LM Studio or Ollama. {seen}\n\n"
+                "With Google: Gemma on Google's servers. Needs a free API key (takes about a minute).")
+    while True:
+        answer = ask(question, yes="On this computer", no="With Google")
+        if answer is None:  # went to sleep without choosing
+            return None
+        if not answer:
+            models.use("google")
+            return "google"
+        tell_pet(do="think", text="looking for Gemma on this computer...")
+        if problem := use_local():
+            print(f"  {problem}")
+            tell_pet(do="say", text=problem)
+            question = f"{problem}\n\nTry again on this computer, or use Google instead?"
+            continue
+        print("  Thinking on this computer from now on (gemlin model google switches to Google).")
+        tell_pet(do="say", text="OK! I'll think right here on this computer. What can I do for you?")
+        tell_pet(do="celebrate")
+        return "local"
 
 def use_local():
     """Typed "local" instead of a key: switch to Gemma on this computer, if it's here."""
@@ -322,7 +351,7 @@ def load_skills():
 def check_key(key):
     """None if the key works, "offline" if Google couldn't be reached, otherwise what went wrong."""
     import httpx
-    tester = genai.Client(api_key=key)  # keep hold of it: the SDK closes a client nobody refers to
+    tester = models.google_client(key, timeout=10)  # keep hold of it: the SDK closes a client nobody refers to
     try:
         tester.models.get(model=MODEL)
     except errors.APIError as e:
@@ -510,16 +539,15 @@ def main(desktop=True, background=False):
         except models.LocalError as e:
             print(f"{NAME}> ({e})")
             tell_pet(do="say", text=f"Hmm. {e}")
-        except errors.APIError as e:
-            tell_pet(do="oops")
-            if e.code in (429, 503):
-                print(f"{NAME}> (rate limited) Wait ~30s, switch MODEL to gemma-4-31b-it, or run Gemma here: gemlin model local")
-            elif e.code == 500:
-                print(f"{NAME}> (Google hiccup, error 500) Just send that again.")
-            else:
-                print(KEY_HELP if "API key" in str(e) else f"{NAME}> (API error {e.code}) {e.message}")
         except Exception as e:
-            tell_pet(do="oops")
-            print(f"{NAME}> (something broke: {e!r})")
+            if trouble := models.google_trouble(e):  # Google is down or busy: say so, and offer local
+                print(f"{NAME}> ({trouble})")
+                tell_pet(do="say", text=trouble)
+            elif isinstance(e, errors.APIError):
+                tell_pet(do="oops")
+                print(KEY_HELP if "API key" in str(e) else f"{NAME}> (API error {e.code}) {e.message}")
+            else:
+                tell_pet(do="oops")
+                print(f"{NAME}> (something broke: {e!r})")
     tell_pet(do="bye")
     print(f"\n{NAME} goes back to sleep.")
