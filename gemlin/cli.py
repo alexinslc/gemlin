@@ -114,6 +114,11 @@ def pick_local():
     return True
 
 
+def doctor(args):
+    from . import doctor  # only loaded when you ask, so `gemlin --help` stays quick
+    return doctor.doctor(args)
+
+
 def check_parts():
     """Make sure the pieces Gemlin needs are installed."""
     ok = sys.version_info >= (3, 10)
@@ -587,6 +592,7 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="reinstall even if it's up to date")
     p.set_defaults(fn=update)
     commands.add_parser("uninstall", help="put Gemlin to sleep and remove its app and login item").set_defaults(fn=uninstall)
+    commands.add_parser("doctor", help="diagnose common problems and suggest fixes").set_defaults(fn=doctor)
     p = commands.add_parser("run")  # used by `gemlin start`; not shown in help
     p.add_argument("--background", action="store_true")
     p.set_defaults(fn=run)

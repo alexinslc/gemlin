@@ -84,6 +84,7 @@ Gemlin finds LM Studio, Ollama, Jan, or a llama.cpp server running on this compu
 | `gemlin look CODE` | Uses the look you made at gemlin.dev/create (restarts Gemlin if it's awake) |
 | `gemlin chat` | Chat in the terminal instead (the desktop pet opens too; `--no-pet` for just the terminal) |
 | `gemlin logs` | What Gemlin has been doing (`-f` to keep watching) |
+| `gemlin doctor` | Something wrong? Checks every piece and says how to fix it |
 | `gemlin skills` | Lists its skills. `gemlin skills new NAME` starts one; `gemlin skills add FILE` adds one someone shared |
 | `gemlin autostart on` | Wakes Gemlin up whenever you log in (`off` turns it off) |
 | `gemlin show` | Wakes Gemlin up, or opens its chat if it's awake (what the app does) |

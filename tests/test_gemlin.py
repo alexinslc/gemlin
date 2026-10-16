@@ -566,3 +566,25 @@ def test_setup_can_pick_this_computer(home, monkeypatch, fake_local):
     monkeypatch.setattr("builtins.input", lambda prompt="": "" if "Pick" in prompt else "n")  # Enter = 1 here
     assert cli.main(["setup"]) == 0
     assert models.source() == "local"
+
+
+def test_doctor_on_a_healthy_setup(home, monkeypatch, fake_local, capsys):
+    paths.save_api_key("a-key")
+    assert cli.main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "Thinks on Google; API key saved" in out and "a-key" not in out
+    assert "LM Studio (google/gemma-4-12b)" in out and "No obvious problems" in out
+
+
+def test_doctor_explains_what_is_missing(home, monkeypatch, fake_local, capsys):
+    from gemlin import models
+    fake_local["server"], fake_local["apps"] = None, []
+    models.use("local")
+    assert cli.main(["doctor"]) == 1
+    out = capsys.readouterr().out
+    assert "Thinks with Gemma on this computer" in out and "there's no LM Studio or Ollama" in out
+
+
+def test_doctor_before_setup_is_not_a_problem(home, monkeypatch, fake_local, capsys):
+    assert cli.main(["doctor"]) == 0
+    assert "asks how it should think" in capsys.readouterr().out
