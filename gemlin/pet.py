@@ -77,6 +77,11 @@ def save_look(code):
 @functools.lru_cache(maxsize=None)
 def read_png(path):
     """Decode an 8-bit RGBA PNG into rows of (r, g, b), with None where it's see-through."""
+    return [[tuple(line[x:x + 3]) if line[x + 3] else None for x in range(0, len(line), 4)]
+            for line in png_lines(path)]
+
+def png_lines(path):
+    """An 8-bit RGBA PNG's rows as raw r, g, b, a bytes."""
     data, pos, idat = path.read_bytes(), 8, b""
     while pos < len(data):
         size, kind = struct.unpack(">I4s", data[pos:pos + 8])
@@ -104,7 +109,7 @@ def read_png(path):
                 p = a + b - c
                 pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
                 line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
-        rows.append([tuple(line[x:x + 3]) if line[x + 3] else None for x in range(0, stride, 4)])
+        rows.append(bytes(line))
         prev = line
     return rows
 
